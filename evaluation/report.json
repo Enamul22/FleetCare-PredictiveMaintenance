@@ -1,0 +1,194 @@
+{
+  "version": "evaluation-1.0",
+  "policy_version": "policy-1.0",
+  "baseline_version": "healthy-linear-1.0",
+  "seed": 77881,
+  "development_vehicles": 80,
+  "heldout_vehicles": 160,
+  "operating_hours": 653.333,
+  "events": 50,
+  "event_matching": "First qualifying alert at/after injected onset within episode; exact family for rules/raw; any family for generic IF. Other alerts are false incidents. No point adjustment.",
+  "partition": "Development VEH-0001..0080; heldout VEH-0201..0360; curated seed 44 excluded.",
+  "methods": {
+    "rules": {
+      "detected_events": 41,
+      "total_events": 50,
+      "event_recall": 0.82,
+      "recall_95pct_wilson": [
+        0.692,
+        0.902
+      ],
+      "by_fault": {
+        "FC-01": {
+          "detected": 9,
+          "total": 11,
+          "recall_95pct_wilson": [
+            0.523,
+            0.949
+          ]
+        },
+        "FC-02": {
+          "detected": 9,
+          "total": 11,
+          "recall_95pct_wilson": [
+            0.523,
+            0.949
+          ]
+        },
+        "FC-03": {
+          "detected": 8,
+          "total": 11,
+          "recall_95pct_wilson": [
+            0.434,
+            0.903
+          ]
+        },
+        "FC-04": {
+          "detected": 4,
+          "total": 5,
+          "recall_95pct_wilson": [
+            0.376,
+            0.964
+          ]
+        },
+        "FC-05": {
+          "detected": 11,
+          "total": 12,
+          "recall_95pct_wilson": [
+            0.646,
+            0.985
+          ]
+        }
+      },
+      "false_incidents": 0,
+      "false_incidents_per_100_hours": 0.0,
+      "alerts": 41,
+      "median_detection_delay_minutes": 10.0,
+      "pre_failure_supported_events": 4,
+      "pre_failure_warnings": 0,
+      "median_lead_minutes": null
+    },
+    "isolation_forest": {
+      "detected_events": 28,
+      "total_events": 50,
+      "event_recall": 0.56,
+      "recall_95pct_wilson": [
+        0.423,
+        0.688
+      ],
+      "by_fault": {
+        "FC-01": {
+          "detected": 8,
+          "total": 11,
+          "recall_95pct_wilson": [
+            0.434,
+            0.903
+          ]
+        },
+        "FC-02": {
+          "detected": 5,
+          "total": 11,
+          "recall_95pct_wilson": [
+            0.213,
+            0.72
+          ]
+        },
+        "FC-03": {
+          "detected": 5,
+          "total": 11,
+          "recall_95pct_wilson": [
+            0.213,
+            0.72
+          ]
+        },
+        "FC-04": {
+          "detected": 3,
+          "total": 5,
+          "recall_95pct_wilson": [
+            0.231,
+            0.882
+          ]
+        },
+        "FC-05": {
+          "detected": 7,
+          "total": 12,
+          "recall_95pct_wilson": [
+            0.32,
+            0.807
+          ]
+        }
+      },
+      "false_incidents": 8,
+      "false_incidents_per_100_hours": 1.2244897959183665,
+      "alerts": 46,
+      "median_detection_delay_minutes": 62.5,
+      "pre_failure_supported_events": 4,
+      "pre_failure_warnings": 0,
+      "median_lead_minutes": null
+    },
+    "raw_limits": {
+      "detected_events": 39,
+      "total_events": 50,
+      "event_recall": 0.78,
+      "recall_95pct_wilson": [
+        0.648,
+        0.872
+      ],
+      "by_fault": {
+        "FC-01": {
+          "detected": 9,
+          "total": 11,
+          "recall_95pct_wilson": [
+            0.523,
+            0.949
+          ]
+        },
+        "FC-02": {
+          "detected": 8,
+          "total": 11,
+          "recall_95pct_wilson": [
+            0.434,
+            0.903
+          ]
+        },
+        "FC-03": {
+          "detected": 8,
+          "total": 11,
+          "recall_95pct_wilson": [
+            0.434,
+            0.903
+          ]
+        },
+        "FC-04": {
+          "detected": 4,
+          "total": 5,
+          "recall_95pct_wilson": [
+            0.376,
+            0.964
+          ]
+        },
+        "FC-05": {
+          "detected": 10,
+          "total": 12,
+          "recall_95pct_wilson": [
+            0.552,
+            0.953
+          ]
+        }
+      },
+      "false_incidents": 9,
+      "false_incidents_per_100_hours": 1.3775510204081625,
+      "alerts": 102,
+      "median_detection_delay_minutes": 10.0,
+      "pre_failure_supported_events": 4,
+      "pre_failure_warnings": 0,
+      "median_lead_minutes": null
+    }
+  },
+  "challenger_decision": "Offline comparison only; not promoted. Generic anomaly recall does not diagnose a fault; review false-incident burden alongside family-specific rules.",
+  "work_order_duplicate_rate": {
+    "duplicates": 0,
+    "orders": 0,
+    "status": "Measured by separate transactional integration tests; no orders exported by offline evaluator."
+  }
+}

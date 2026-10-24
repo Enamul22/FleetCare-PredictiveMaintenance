@@ -1,0 +1,108 @@
+{
+  "FC-01": {
+    "id": "PB-01",
+    "version": "PB-1.0",
+    "fault_code": "FC-01",
+    "models": [
+      "ALD",
+      "BIR",
+      "CED",
+      "ELM"
+    ],
+    "installed_component_type": "FC-01",
+    "investigation": "Review load and temperature; inspect fictional oil-cooling circuit and sensor bias.",
+    "candidate_families": [
+      "OIL-COOLER",
+      "COOLER-SEALS",
+      "OIL-TEMP-SENSOR"
+    ],
+    "severity_handling": "Critical: prioritize fictional workshop investigation; warning: schedule investigation. No real safety guidance.",
+    "verification": "15 eligible operating minutes under comparable context meeting recovery policy",
+    "actual_bundle": "Finding selects compatible SKU, quantity 1; no automatic all-candidate replacement"
+  },
+  "FC-02": {
+    "id": "PB-02",
+    "version": "PB-1.0",
+    "fault_code": "FC-02",
+    "models": [
+      "ALD",
+      "BIR",
+      "CED",
+      "ELM"
+    ],
+    "installed_component_type": "FC-02",
+    "investigation": "Inspect fictional circulation, thermostat and fan; verify sensor measurement.",
+    "candidate_families": [
+      "THERMOSTAT",
+      "COOLANT-PUMP",
+      "FAN",
+      "COOLANT-TEMP-SENSOR"
+    ],
+    "severity_handling": "Critical: prioritize fictional workshop investigation; warning: schedule investigation. No real safety guidance.",
+    "verification": "15 eligible operating minutes under comparable context meeting recovery policy",
+    "actual_bundle": "Finding selects compatible SKU, quantity 1; no automatic all-candidate replacement"
+  },
+  "FC-03": {
+    "id": "PB-03",
+    "version": "PB-1.0",
+    "fault_code": "FC-03",
+    "models": [
+      "ALD",
+      "BIR",
+      "CED",
+      "ELM"
+    ],
+    "installed_component_type": "FC-03",
+    "investigation": "Verify pressure measurement; inspect fictional lubrication supply and filter.",
+    "candidate_families": [
+      "PRESSURE-SENSOR",
+      "OIL-FILTER",
+      "OIL-PUMP"
+    ],
+    "severity_handling": "Critical: prioritize fictional workshop investigation; warning: schedule investigation. No real safety guidance.",
+    "verification": "15 eligible operating minutes under comparable context meeting recovery policy",
+    "actual_bundle": "Finding selects compatible SKU, quantity 1; no automatic all-candidate replacement"
+  },
+  "FC-04": {
+    "id": "PB-04",
+    "version": "PB-1.0",
+    "fault_code": "FC-04",
+    "models": [
+      "ALD",
+      "BIR",
+      "CED",
+      "ELM"
+    ],
+    "installed_component_type": "FC-04",
+    "investigation": "Inspect fictional charging connections and charging-component condition.",
+    "candidate_families": [
+      "CONNECTION-KIT",
+      "REGULATOR",
+      "ALTERNATOR"
+    ],
+    "severity_handling": "Critical: prioritize fictional workshop investigation; warning: schedule investigation. No real safety guidance.",
+    "verification": "15 eligible operating minutes under comparable context meeting recovery policy",
+    "actual_bundle": "Finding selects compatible SKU, quantity 1; no automatic all-candidate replacement"
+  },
+  "FC-05": {
+    "id": "PB-05",
+    "version": "PB-1.0",
+    "fault_code": "FC-05",
+    "models": [
+      "ALD",
+      "BIR",
+      "CED",
+      "ELM"
+    ],
+    "installed_component_type": "FC-05",
+    "investigation": "Review RPM/load stability; inspect fictional mounting and ignition causes.",
+    "candidate_families": [
+      "ENGINE-MOUNT",
+      "IGNITION-COIL",
+      "SPARK-PLUGS"
+    ],
+    "severity_handling": "Critical: prioritize fictional workshop investigation; warning: schedule investigation. No real safety guidance.",
+    "verification": "15 eligible operating minutes under comparable context meeting recovery policy",
+    "actual_bundle": "Finding selects compatible SKU, quantity 1; no automatic all-candidate replacement"
+  }
+}

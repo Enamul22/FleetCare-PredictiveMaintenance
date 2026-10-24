@@ -1,0 +1,47 @@
+{
+  "version": "operational-1.0",
+  "cases": [
+    {
+      "code": "FC-01",
+      "order_id": "WO-55fbbaf5038aaed30b",
+      "incident_id": "55fbbaf5038aaed30b",
+      "verified": "resolved",
+      "consumed_sku": "PART-BIR-OIL-COOLER-01"
+    },
+    {
+      "code": "FC-02",
+      "order_id": "WO-ebae0b90f1536ae66b",
+      "incident_id": "ebae0b90f1536ae66b",
+      "verified": "resolved",
+      "consumed_sku": "PART-ALD-THERMOSTAT-01"
+    },
+    {
+      "code": "FC-03",
+      "order_id": "WO-50c87da55bf2fd7ddf",
+      "incident_id": "50c87da55bf2fd7ddf",
+      "verified": "resolved",
+      "consumed_sku": "PART-ELM-PRESSURE-SENSOR-01"
+    },
+    {
+      "code": "FC-04",
+      "order_id": "WO-c945befbedee2551a4",
+      "incident_id": "c945befbedee2551a4",
+      "verified": "resolved",
+      "consumed_sku": "PART-ALD-CONNECTION-KIT-01"
+    },
+    {
+      "code": "FC-05",
+      "order_id": "WO-827cd87df2d6f75034",
+      "incident_id": "827cd87df2d6f75034",
+      "verified": "resolved",
+      "consumed_sku": "PART-BIR-ENGINE-MOUNT-01"
+    }
+  ],
+  "orders": 5,
+  "duplicates": 0,
+  "consumed_units": 5,
+  "feedback": 5,
+  "retries": 10,
+  "duplicate_rate": 0.0,
+  "synthetic": true
+}

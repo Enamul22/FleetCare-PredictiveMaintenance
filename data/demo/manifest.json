@@ -1,0 +1,27 @@
+{
+  "simulation_version": "sim-1.0",
+  "seed": 20251024,
+  "fleet_size": 1000,
+  "full_detailed": false,
+  "daily_coverage": "2025-01-01/2025-12-31",
+  "detailed_coverage": "9 curated windows, 2025-12-15; 387 rows; 5-minute cadence",
+  "tables": {
+    "daily.parquet": 365000,
+    "parts.parquet": 64,
+    "monthly.parquet": 12000,
+    "assets.parquet": 1000,
+    "service_history.parquet": 1000,
+    "id_map.parquet": 1000,
+    "replays.parquet": 387
+  },
+  "sha256": {
+    "daily.parquet": "424fe0e3e3e10f2ceae5ca49d7ab69b9aa4adcf19953cb26a82bc2fe6a4338c5",
+    "parts.parquet": "523a7c0274c9f1e9c2cf51acd3bf90eb0326fcb9bea23aaca070393214f2e857",
+    "monthly.parquet": "023704f343243bc50740e2e567f0131eb978a9dd8ee1492b5280af35e2ad0652",
+    "assets.parquet": "b604b9b20388cce096a74b9b49264eb56897c78071659405167d4b86efbe2952",
+    "service_history.parquet": "bd27b51fe160851e4ff3c6d10f9d2e4f8361ebfeae9d2df9fc638e451d12e319",
+    "id_map.parquet": "8eac9756e9fb367827029798c73942dad9cd544a8bf30871de373e7fe2baeb1e",
+    "replays.parquet": "5843a898e11adf712bdb73abb88d20166c474385f76ad0251be7607a6510cb4a",
+    "baseline.json": "c7339b32404519321fc320dd70e65cc81d1c261d28528598f6bfa6770fb64bee"
+  }
+}

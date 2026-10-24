@@ -1,0 +1,452 @@
+[
+  {
+    "case": 2,
+    "vehicle_id": "VEH-0203",
+    "code": "FC-02",
+    "onset": "2025-11-20T07:00:00+00:00",
+    "failure_onset": null,
+    "severity": 0.2606179199195493,
+    "gradual": true
+  },
+  {
+    "case": 2,
+    "vehicle_id": "VEH-0203",
+    "code": "FC-01",
+    "onset": "2025-11-20T07:00:00+00:00",
+    "failure_onset": null,
+    "severity": 0.4107730851832803,
+    "gradual": false
+  },
+  {
+    "case": 3,
+    "vehicle_id": "VEH-0204",
+    "code": "FC-02",
+    "onset": "2025-11-20T07:00:00+00:00",
+    "failure_onset": "2025-11-20T07:00:00+00:00",
+    "severity": 0.9257032773281635,
+    "gradual": false
+  },
+  {
+    "case": 7,
+    "vehicle_id": "VEH-0208",
+    "code": "FC-04",
+    "onset": "2025-11-20T07:00:00+00:00",
+    "failure_onset": null,
+    "severity": 0.71210751105019,
+    "gradual": false
+  },
+  {
+    "case": 9,
+    "vehicle_id": "VEH-0210",
+    "code": "FC-03",
+    "onset": "2025-11-20T07:00:00+00:00",
+    "failure_onset": null,
+    "severity": 0.546452304932547,
+    "gradual": true
+  },
+  {
+    "case": 11,
+    "vehicle_id": "VEH-0212",
+    "code": "FC-03",
+    "onset": "2025-11-20T07:00:00+00:00",
+    "failure_onset": null,
+    "severity": 0.30355519806452497,
+    "gradual": false
+  },
+  {
+    "case": 16,
+    "vehicle_id": "VEH-0217",
+    "code": "FC-01",
+    "onset": "2025-11-20T07:00:00+00:00",
+    "failure_onset": null,
+    "severity": 0.383237142118059,
+    "gradual": false
+  },
+  {
+    "case": 24,
+    "vehicle_id": "VEH-0225",
+    "code": "FC-02",
+    "onset": "2025-11-20T07:00:00+00:00",
+    "failure_onset": null,
+    "severity": 0.30789117658939097,
+    "gradual": false
+  },
+  {
+    "case": 25,
+    "vehicle_id": "VEH-0226",
+    "code": "FC-03",
+    "onset": "2025-11-20T07:00:00+00:00",
+    "failure_onset": null,
+    "severity": 0.7636411269760054,
+    "gradual": true
+  },
+  {
+    "case": 31,
+    "vehicle_id": "VEH-0232",
+    "code": "FC-02",
+    "onset": "2025-11-20T07:00:00+00:00",
+    "failure_onset": null,
+    "severity": 0.32223271761958505,
+    "gradual": true
+  },
+  {
+    "case": 33,
+    "vehicle_id": "VEH-0234",
+    "code": "FC-01",
+    "onset": "2025-11-20T07:00:00+00:00",
+    "failure_onset": null,
+    "severity": 0.4140404139429577,
+    "gradual": true
+  },
+  {
+    "case": 37,
+    "vehicle_id": "VEH-0238",
+    "code": "FC-01",
+    "onset": "2025-11-20T07:00:00+00:00",
+    "failure_onset": null,
+    "severity": 0.319769669518412,
+    "gradual": true
+  },
+  {
+    "case": 38,
+    "vehicle_id": "VEH-0239",
+    "code": "FC-05",
+    "onset": "2025-11-20T07:00:00+00:00",
+    "failure_onset": "2025-11-20T07:00:00+00:00",
+    "severity": 0.9451201282715584,
+    "gradual": false
+  },
+  {
+    "case": 41,
+    "vehicle_id": "VEH-0242",
+    "code": "FC-01",
+    "onset": "2025-11-20T07:00:00+00:00",
+    "failure_onset": "2025-11-20T07:00:00+00:00",
+    "severity": 0.9213975337523873,
+    "gradual": false
+  },
+  {
+    "case": 47,
+    "vehicle_id": "VEH-0248",
+    "code": "FC-02",
+    "onset": "2025-11-20T07:00:00+00:00",
+    "failure_onset": null,
+    "severity": 0.8972297674303165,
+    "gradual": true
+  },
+  {
+    "case": 52,
+    "vehicle_id": "VEH-0253",
+    "code": "FC-03",
+    "onset": "2025-11-20T07:00:00+00:00",
+    "failure_onset": null,
+    "severity": 0.3152132750210192,
+    "gradual": false
+  },
+  {
+    "case": 54,
+    "vehicle_id": "VEH-0255",
+    "code": "FC-05",
+    "onset": "2025-11-20T07:00:00+00:00",
+    "failure_onset": null,
+    "severity": 0.8859368786207532,
+    "gradual": false
+  },
+  {
+    "case": 55,
+    "vehicle_id": "VEH-0256",
+    "code": "FC-01",
+    "onset": "2025-11-20T07:00:00+00:00",
+    "failure_onset": null,
+    "severity": 0.5254319394787689,
+    "gradual": true
+  },
+  {
+    "case": 69,
+    "vehicle_id": "VEH-0270",
+    "code": "FC-03",
+    "onset": "2025-11-20T07:00:00+00:00",
+    "failure_onset": "2025-11-20T07:00:00+00:00",
+    "severity": 0.91463482484162,
+    "gradual": false
+  },
+  {
+    "case": 73,
+    "vehicle_id": "VEH-0274",
+    "code": "FC-05",
+    "onset": "2025-11-20T07:00:00+00:00",
+    "failure_onset": null,
+    "severity": 0.2493760178834003,
+    "gradual": true
+  },
+  {
+    "case": 77,
+    "vehicle_id": "VEH-0278",
+    "code": "FC-03",
+    "onset": "2025-11-20T07:00:00+00:00",
+    "failure_onset": null,
+    "severity": 0.8060106366519252,
+    "gradual": false
+  },
+  {
+    "case": 83,
+    "vehicle_id": "VEH-0284",
+    "code": "FC-05",
+    "onset": "2025-11-20T07:00:00+00:00",
+    "failure_onset": null,
+    "severity": 0.42080445231387376,
+    "gradual": true
+  },
+  {
+    "case": 84,
+    "vehicle_id": "VEH-0285",
+    "code": "FC-01",
+    "onset": "2025-11-20T07:00:00+00:00",
+    "failure_onset": null,
+    "severity": 0.7959627446932891,
+    "gradual": true
+  },
+  {
+    "case": 90,
+    "vehicle_id": "VEH-0291",
+    "code": "FC-03",
+    "onset": "2025-11-20T07:00:00+00:00",
+    "failure_onset": null,
+    "severity": 0.6590534730928275,
+    "gradual": true
+  },
+  {
+    "case": 90,
+    "vehicle_id": "VEH-0291",
+    "code": "FC-05",
+    "onset": "2025-11-20T07:00:00+00:00",
+    "failure_onset": null,
+    "severity": 0.8022696200044512,
+    "gradual": true
+  },
+  {
+    "case": 91,
+    "vehicle_id": "VEH-0292",
+    "code": "FC-01",
+    "onset": "2025-11-20T07:00:00+00:00",
+    "failure_onset": null,
+    "severity": 0.48529209940218654,
+    "gradual": false
+  },
+  {
+    "case": 92,
+    "vehicle_id": "VEH-0293",
+    "code": "FC-02",
+    "onset": "2025-11-20T07:00:00+00:00",
+    "failure_onset": null,
+    "severity": 0.8449429006183492,
+    "gradual": false
+  },
+  {
+    "case": 98,
+    "vehicle_id": "VEH-0299",
+    "code": "FC-02",
+    "onset": "2025-11-20T07:00:00+00:00",
+    "failure_onset": null,
+    "severity": 0.7602870740750935,
+    "gradual": false
+  },
+  {
+    "case": 99,
+    "vehicle_id": "VEH-0300",
+    "code": "FC-04",
+    "onset": "2025-11-20T07:00:00+00:00",
+    "failure_onset": null,
+    "severity": 0.3337012883222167,
+    "gradual": false
+  },
+  {
+    "case": 99,
+    "vehicle_id": "VEH-0300",
+    "code": "FC-05",
+    "onset": "2025-11-20T07:00:00+00:00",
+    "failure_onset": null,
+    "severity": 0.8364604565296022,
+    "gradual": true
+  },
+  {
+    "case": 100,
+    "vehicle_id": "VEH-0301",
+    "code": "FC-03",
+    "onset": "2025-11-20T07:00:00+00:00",
+    "failure_onset": null,
+    "severity": 0.8791894255098311,
+    "gradual": false
+  },
+  {
+    "case": 100,
+    "vehicle_id": "VEH-0301",
+    "code": "FC-05",
+    "onset": "2025-11-20T07:00:00+00:00",
+    "failure_onset": null,
+    "severity": 0.5116533408099486,
+    "gradual": false
+  },
+  {
+    "case": 105,
+    "vehicle_id": "VEH-0306",
+    "code": "FC-01",
+    "onset": "2025-11-20T07:00:00+00:00",
+    "failure_onset": null,
+    "severity": 0.8169445567736664,
+    "gradual": false
+  },
+  {
+    "case": 106,
+    "vehicle_id": "VEH-0307",
+    "code": "FC-02",
+    "onset": "2025-11-20T07:00:00+00:00",
+    "failure_onset": null,
+    "severity": 0.5227873252938682,
+    "gradual": false
+  },
+  {
+    "case": 107,
+    "vehicle_id": "VEH-0308",
+    "code": "FC-05",
+    "onset": "2025-11-20T07:00:00+00:00",
+    "failure_onset": null,
+    "severity": 0.8151581475722309,
+    "gradual": true
+  },
+  {
+    "case": 109,
+    "vehicle_id": "VEH-0310",
+    "code": "FC-05",
+    "onset": "2025-11-20T07:00:00+00:00",
+    "failure_onset": null,
+    "severity": 0.6549035289885268,
+    "gradual": true
+  },
+  {
+    "case": 114,
+    "vehicle_id": "VEH-0315",
+    "code": "FC-01",
+    "onset": "2025-11-20T07:00:00+00:00",
+    "failure_onset": null,
+    "severity": 0.3462845011658913,
+    "gradual": false
+  },
+  {
+    "case": 117,
+    "vehicle_id": "VEH-0318",
+    "code": "FC-05",
+    "onset": "2025-11-20T07:00:00+00:00",
+    "failure_onset": null,
+    "severity": 0.4431406042759032,
+    "gradual": false
+  },
+  {
+    "case": 123,
+    "vehicle_id": "VEH-0324",
+    "code": "FC-05",
+    "onset": "2025-11-20T07:00:00+00:00",
+    "failure_onset": null,
+    "severity": 0.5548152208137719,
+    "gradual": true
+  },
+  {
+    "case": 124,
+    "vehicle_id": "VEH-0325",
+    "code": "FC-02",
+    "onset": "2025-11-20T07:00:00+00:00",
+    "failure_onset": null,
+    "severity": 0.8462991333926514,
+    "gradual": true
+  },
+  {
+    "case": 127,
+    "vehicle_id": "VEH-0328",
+    "code": "FC-01",
+    "onset": "2025-11-20T07:00:00+00:00",
+    "failure_onset": null,
+    "severity": 0.785993471235486,
+    "gradual": false
+  },
+  {
+    "case": 128,
+    "vehicle_id": "VEH-0329",
+    "code": "FC-02",
+    "onset": "2025-11-20T07:00:00+00:00",
+    "failure_onset": null,
+    "severity": 0.8185651644791511,
+    "gradual": false
+  },
+  {
+    "case": 130,
+    "vehicle_id": "VEH-0331",
+    "code": "FC-04",
+    "onset": "2025-11-20T07:00:00+00:00",
+    "failure_onset": null,
+    "severity": 0.4774193927600849,
+    "gradual": false
+  },
+  {
+    "case": 135,
+    "vehicle_id": "VEH-0336",
+    "code": "FC-03",
+    "onset": "2025-11-20T07:00:00+00:00",
+    "failure_onset": null,
+    "severity": 0.8276223002503921,
+    "gradual": true
+  },
+  {
+    "case": 139,
+    "vehicle_id": "VEH-0340",
+    "code": "FC-03",
+    "onset": "2025-11-20T07:00:00+00:00",
+    "failure_onset": null,
+    "severity": 0.5810822869467486,
+    "gradual": false
+  },
+  {
+    "case": 140,
+    "vehicle_id": "VEH-0341",
+    "code": "FC-05",
+    "onset": "2025-11-20T07:00:00+00:00",
+    "failure_onset": null,
+    "severity": 0.760999720913456,
+    "gradual": true
+  },
+  {
+    "case": 141,
+    "vehicle_id": "VEH-0342",
+    "code": "FC-04",
+    "onset": "2025-11-20T07:00:00+00:00",
+    "failure_onset": null,
+    "severity": 0.236908618868143,
+    "gradual": false
+  },
+  {
+    "case": 153,
+    "vehicle_id": "VEH-0354",
+    "code": "FC-02",
+    "onset": "2025-11-20T07:00:00+00:00",
+    "failure_onset": null,
+    "severity": 0.5477788631337787,
+    "gradual": true
+  },
+  {
+    "case": 157,
+    "vehicle_id": "VEH-0358",
+    "code": "FC-04",
+    "onset": "2025-11-20T07:00:00+00:00",
+    "failure_onset": null,
+    "severity": 0.7648641310596275,
+    "gradual": false
+  },
+  {
+    "case": 157,
+    "vehicle_id": "VEH-0358",
+    "code": "FC-03",
+    "onset": "2025-11-20T07:00:00+00:00",
+    "failure_onset": null,
+    "severity": 0.22696967882761976,
+    "gradual": true
+  }
+]

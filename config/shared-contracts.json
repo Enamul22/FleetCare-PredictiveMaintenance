@@ -1,0 +1,267 @@
+{
+  "ServicePackage": {
+    "properties": {
+      "package_id": {
+        "title": "Package Id",
+        "type": "string"
+      },
+      "model_id": {
+        "enum": [
+          "ALD",
+          "BIR",
+          "CED",
+          "ELM"
+        ],
+        "title": "Model Id",
+        "type": "string"
+      },
+      "interval_hours": {
+        "exclusiveMinimum": 0,
+        "title": "Interval Hours",
+        "type": "number"
+      },
+      "interval_km": {
+        "exclusiveMinimum": 0,
+        "title": "Interval Km",
+        "type": "number"
+      },
+      "interval_days": {
+        "exclusiveMinimum": 0,
+        "title": "Interval Days",
+        "type": "integer"
+      },
+      "overlap_rule": {
+        "enum": [
+          "combine",
+          "keep_separate"
+        ],
+        "title": "Overlap Rule",
+        "type": "string"
+      },
+      "policy_version": {
+        "title": "Policy Version",
+        "type": "string"
+      },
+      "synthetic": {
+        "const": true,
+        "default": true,
+        "title": "Synthetic",
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "package_id",
+      "model_id",
+      "interval_hours",
+      "interval_km",
+      "interval_days",
+      "overlap_rule",
+      "policy_version"
+    ],
+    "title": "ServicePackage",
+    "type": "object"
+  },
+  "ServiceCounter": {
+    "properties": {
+      "vehicle_id": {
+        "title": "Vehicle Id",
+        "type": "string"
+      },
+      "package_id": {
+        "title": "Package Id",
+        "type": "string"
+      },
+      "last_completed_at": {
+        "format": "date-time",
+        "title": "Last Completed At",
+        "type": "string"
+      },
+      "lifetime_hours_at_service": {
+        "minimum": 0,
+        "title": "Lifetime Hours At Service",
+        "type": "number"
+      },
+      "odometer_at_service_km": {
+        "minimum": 0,
+        "title": "Odometer At Service Km",
+        "type": "number"
+      },
+      "next_due_hours": {
+        "minimum": 0,
+        "title": "Next Due Hours",
+        "type": "number"
+      },
+      "next_due_km": {
+        "minimum": 0,
+        "title": "Next Due Km",
+        "type": "number"
+      },
+      "next_due_at": {
+        "format": "date-time",
+        "title": "Next Due At",
+        "type": "string"
+      },
+      "milestone_key": {
+        "title": "Milestone Key",
+        "type": "string"
+      },
+      "late_service": {
+        "title": "Late Service",
+        "type": "boolean"
+      },
+      "policy_version": {
+        "title": "Policy Version",
+        "type": "string"
+      }
+    },
+    "required": [
+      "vehicle_id",
+      "package_id",
+      "last_completed_at",
+      "lifetime_hours_at_service",
+      "odometer_at_service_km",
+      "next_due_hours",
+      "next_due_km",
+      "next_due_at",
+      "milestone_key",
+      "late_service",
+      "policy_version"
+    ],
+    "title": "ServiceCounter",
+    "type": "object"
+  },
+  "MonthlyHealthRecord": {
+    "properties": {
+      "vehicle_id": {
+        "title": "Vehicle Id",
+        "type": "string"
+      },
+      "month": {
+        "pattern": "^2025-(0[1-9]|1[0-2])$",
+        "title": "Month",
+        "type": "string"
+      },
+      "overall_condition_score": {
+        "anyOf": [
+          {
+            "maximum": 100,
+            "minimum": 0,
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Overall Condition Score"
+      },
+      "component_scores": {
+        "additionalProperties": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "title": "Component Scores",
+        "type": "object"
+      },
+      "peer_percentile": {
+        "anyOf": [
+          {
+            "maximum": 100,
+            "minimum": 0,
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Peer Percentile"
+      },
+      "data_confidence": {
+        "maximum": 1,
+        "minimum": 0,
+        "title": "Data Confidence",
+        "type": "number"
+      },
+      "peer_count": {
+        "minimum": 0,
+        "title": "Peer Count",
+        "type": "integer"
+      },
+      "peer_reference": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Peer Reference"
+      },
+      "cohort_definition": {
+        "title": "Cohort Definition",
+        "type": "string"
+      },
+      "fallback_group": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Fallback Group"
+      },
+      "negative_contributors": {
+        "items": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "title": "Negative Contributors",
+        "type": "array"
+      },
+      "scoring_version": {
+        "title": "Scoring Version",
+        "type": "string"
+      },
+      "reference_version": {
+        "title": "Reference Version",
+        "type": "string"
+      },
+      "revision": {
+        "minimum": 1,
+        "title": "Revision",
+        "type": "integer"
+      },
+      "source_manifest_sha256": {
+        "title": "Source Manifest Sha256",
+        "type": "string"
+      }
+    },
+    "required": [
+      "vehicle_id",
+      "month",
+      "component_scores",
+      "data_confidence",
+      "peer_count",
+      "cohort_definition",
+      "negative_contributors",
+      "scoring_version",
+      "reference_version",
+      "revision",
+      "source_manifest_sha256"
+    ],
+    "title": "MonthlyHealthRecord",
+    "type": "object"
+  }
+}
