@@ -23,7 +23,8 @@ Screenshots are current application captures:
 |---|---|
 | overview-header.jpg | Admin heading, source coverage, filters and measured counts |
 | overview-wide.jpg | Complete counts, page control and populated selectable fleet table |
-| incident-evidence.jpg | Actual supporting sensor chart and evidence context |
+| fault-detail.jpg | Selected vehicle/customer, independent statuses and order link above tabs |
+| incident-evidence.jpg | Actual supporting sensor chart, legend/boundaries and evidence context |
 | work-order.jpg | Customer saved recommendation and proposed parts |
 | feedback.jpg | Completed technical response form |
 | admin-writeback.jpg | Exact customer response visible after admin refresh |
