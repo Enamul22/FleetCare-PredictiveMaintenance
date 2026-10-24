@@ -8,8 +8,8 @@ A synthetic maintenance workflow by **Enamul Haque**, with two workspaces:
 
 ![Fault overview](docs/evidence/overview-wide.jpg)
 
-All vehicles, customers, telemetry, locations, workshop procedures, parts and outcomes are fictional. This
-is an independent portfolio demonstration, with no Metso/OEM affiliation or real customer integration.
+All vehicles, customers, telemetry, locations, workshop procedures, parts and outcomes are based on synthetic data. This
+is an independent portfolio demonstration, with no company affiliation or real customer integration.
 No paid API is needed. No open-source licence grant has been selected.
 
 ## Install and launch
@@ -164,10 +164,3 @@ flowchart LR
 
 ServicePlan scheduling and FleetPulse scoring remain future projects. Shared schemas/histories are
 preserved; no scheduler, overall condition score, peer percentile engine or portfolio website is included.
-
-## Manual deployment after review
-
-Nothing was deployed. After review, sign in to Streamlit using **Enamul22**, select this repository,
-`main`, `app.py`, and Python 3.12. Configure private review identities and the shared storage path as needed.
-No paid APIs or real customer accounts are required. Follow the deployment checklist and understand the
-hosted filesystem/durability limitations before making it available to visitors.
