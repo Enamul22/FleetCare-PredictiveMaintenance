@@ -7,3 +7,5 @@ __pycache__/
 .env
 .DS_Store
 data/full/
+.streamlit/secrets.toml
+config/private-users.json

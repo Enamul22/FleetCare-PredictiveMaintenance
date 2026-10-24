@@ -6,9 +6,5 @@
   "minimum_coverage": 0.8,
   "max_gap_cadences": 2,
   "cooldown_minutes": 30,
-  "repair_effects": {
-    "correct": 1.0,
-    "partial": 0.45,
-    "incorrect_or_inspection": 0.0
-  }
+  "data_revision": "interval-support-r2"
 }

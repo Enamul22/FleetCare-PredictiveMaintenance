@@ -47,3 +47,37 @@ Checks and final completion ledger will be recorded here as work proceeds.
 - GitHub Actions run 40107416021 passed all checks on pushed commit 87183e6. Its Node 20 action
   deprecation notice prompted updating all three official actions to v7 (official current documentation
   verified) and pinning ubuntu-24.04 to avoid runner migration drift. Final run is checked in handoff.
+
+# Repository update · approved two-workspace workflow
+
+Public name, package version 1.0.0 and app.py unchanged. New prompt supersedes automatic export,
+five-view replay onboarding and isolated per-browser stores.
+
+Plan: (1) bounded complete-fleet episode pipeline + corrected temporal support, (2) additive shared-store
+migration and authenticated service authorization, (3) two-workspace UI and saved response snapshots,
+(4) deterministic bounded event evaluation, (5) service/UI/browser cross-session checks, docs/screenshots,
+clean setup, verified Enamul push and remote CI. Preserve legacy tables/audit; never synthesize responses.
+
+Authentication decision: zero-service local demo credential sign-in with hashed server-side passwords,
+opaque expiring sessions and service-enforced ownership. Optional private credential configuration replaces
+public demo accounts. This is a synthetic single-instance demonstration, not production identity management.
+Shared SQLite WAL with explicit refresh; hosted filesystem durability is not promised.
+
+Completed update implementation:
+- Full offline run processed 1,000 partitions / 1,931,280 observations / 153,450.166667 supported hours;
+  materialized all 70 episodes with actual retrievable support. No fault cap or manufactured end/recovery.
+- Replaced automatic replay/export and inventory gates with explicit Create and one customer response.
+  Shared WAL store, additive migration, immutable recommendation snapshots, signed-in service ownership,
+  unique order/response keys, atomic idempotent writes and conflict rejection are covered by tests.
+- Corrected unordered co-fault random draws, bounded event matching, recurrence/duplicate accounting,
+  and interval exposure/counters. New reserved evaluation: rules 53/61, IF 27/61, raw limits 51/61;
+  633.333333 supported hours. Rules have zero observed false incidents; 3/3 synthetic advance warnings
+  are a very small subset, not a general real-world forecasting claim. Historical evidence preserved.
+- Local Python 3.12.14: 36 tests passed in 17.37 s; Ruff lint/format and compile checks pass.
+- Chrome validated native selection → explicit order → separate signed-in customer Completed/Not resolved
+  with rating/notes → admin refresh. Second customer Rejected required reason and persisted to history
+  and admin detail. CSV download has exactly 70 unique fault rows with both saved responses.
+- Wide and 390×844 screenshots updated; temporary responsive override reset. README, architecture,
+  data/model cards, playbooks, testing, evidence and private-review authentication/storage instructions updated.
+- Connector and SSH independently verified as Enamul22 / ID 135505234; exact existing origin and local
+  author checked. Remote main matched original HEAD before update. No Priynka account mutation or deployment.

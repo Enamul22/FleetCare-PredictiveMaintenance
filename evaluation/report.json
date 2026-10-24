@@ -1,194 +1,206 @@
 {
-  "version": "evaluation-1.0",
-  "policy_version": "policy-1.0",
   "baseline_version": "healthy-linear-1.0",
-  "seed": 77881,
+  "challenger_decision": "Isolation Forest remains an offline generic challenger. No promotion or test-driven threshold tuning.",
   "development_vehicles": 80,
+  "event_matching": "Stable event IDs with onset/end. Alert must fall inside the same case/family episode, inclusive, with no late grace. Recurrences are independent events. First alert recalls one event; repeats are duplicate alerts, reported separately. Early/late/no-event alerts are false. A generic IF alert can recall at most one contemporaneous event and never diagnoses its family.",
+  "events": 61,
+  "exposure_definition": "Sum of consecutive engine-on intervals <=10 minutes; both endpoints engine on; no final sample extrapolation. Missing sensor values retain known operating context.",
   "heldout_vehicles": 160,
-  "operating_hours": 653.333,
-  "events": 50,
-  "event_matching": "First qualifying alert at/after injected onset within episode; exact family for rules/raw; any family for generic IF. False incidents have no matching active injected event. Repeated alerts within an active event count in alerts, not additional recall. No point adjustment.",
-  "partition": "Development VEH-0001..0080; heldout VEH-0201..0360; curated seed 44 excluded.",
   "methods": {
-    "rules": {
-      "detected_events": 41,
-      "total_events": 50,
-      "event_recall": 0.82,
-      "recall_95pct_wilson": [
-        0.692,
-        0.902
-      ],
-      "by_fault": {
-        "FC-01": {
-          "detected": 9,
-          "total": 11,
-          "recall_95pct_wilson": [
-            0.523,
-            0.949
-          ]
-        },
-        "FC-02": {
-          "detected": 9,
-          "total": 11,
-          "recall_95pct_wilson": [
-            0.523,
-            0.949
-          ]
-        },
-        "FC-03": {
-          "detected": 8,
-          "total": 11,
-          "recall_95pct_wilson": [
-            0.434,
-            0.903
-          ]
-        },
-        "FC-04": {
-          "detected": 4,
-          "total": 5,
-          "recall_95pct_wilson": [
-            0.376,
-            0.964
-          ]
-        },
-        "FC-05": {
-          "detected": 11,
-          "total": 12,
-          "recall_95pct_wilson": [
-            0.646,
-            0.985
-          ]
-        }
-      },
-      "false_incidents": 0,
-      "false_incidents_per_100_hours": 0.0,
-      "alerts": 41,
-      "median_detection_delay_minutes": 10.0,
-      "pre_failure_supported_events": 4,
-      "pre_failure_warnings": 0,
-      "median_lead_minutes": null
-    },
     "isolation_forest": {
-      "detected_events": 28,
-      "total_events": 50,
-      "event_recall": 0.56,
-      "recall_95pct_wilson": [
-        0.423,
-        0.688
-      ],
+      "alerts": 36,
       "by_fault": {
         "FC-01": {
-          "detected": 8,
-          "total": 11,
+          "detected": 12,
           "recall_95pct_wilson": [
-            0.434,
-            0.903
-          ]
+            0.548,
+            0.93
+          ],
+          "total": 15
         },
         "FC-02": {
-          "detected": 5,
-          "total": 11,
+          "detected": 3,
           "recall_95pct_wilson": [
-            0.213,
-            0.72
-          ]
+            0.137,
+            0.694
+          ],
+          "total": 8
         },
         "FC-03": {
+          "detected": 2,
+          "recall_95pct_wilson": [
+            0.04,
+            0.399
+          ],
+          "total": 14
+        },
+        "FC-04": {
           "detected": 5,
-          "total": 11,
+          "recall_95pct_wilson": [
+            0.177,
+            0.645
+          ],
+          "total": 13
+        },
+        "FC-05": {
+          "detected": 5,
           "recall_95pct_wilson": [
             0.213,
             0.72
-          ]
-        },
-        "FC-04": {
-          "detected": 3,
-          "total": 5,
-          "recall_95pct_wilson": [
-            0.231,
-            0.882
-          ]
-        },
-        "FC-05": {
-          "detected": 7,
-          "total": 12,
-          "recall_95pct_wilson": [
-            0.32,
-            0.807
-          ]
+          ],
+          "total": 11
         }
       },
-      "false_incidents": 8,
-      "false_incidents_per_100_hours": 1.2244897959183665,
-      "alerts": 46,
-      "median_detection_delay_minutes": 62.5,
-      "pre_failure_supported_events": 4,
+      "detected_events": 27,
+      "duplicate_alerts": 3,
+      "early_unmatched_alerts": 1,
+      "event_recall": 0.4426229508196721,
+      "false_incidents": 6,
+      "false_incidents_per_100_hours": 0.9473684210526316,
+      "late_unmatched_alerts": 1,
+      "median_detection_delay_minutes": 45.0,
+      "median_lead_minutes": null,
+      "no_event_alerts": 4,
+      "pre_failure_supported_events": 3,
       "pre_failure_warnings": 0,
-      "median_lead_minutes": null
+      "recall_95pct_wilson": [
+        0.325,
+        0.567
+      ],
+      "total_events": 61,
+      "zero_false_rate_95pct_upper_per_100_hours": null
     },
     "raw_limits": {
-      "detected_events": 39,
-      "total_events": 50,
-      "event_recall": 0.78,
-      "recall_95pct_wilson": [
-        0.648,
-        0.872
-      ],
+      "alerts": 75,
       "by_fault": {
         "FC-01": {
-          "detected": 9,
-          "total": 11,
+          "detected": 13,
           "recall_95pct_wilson": [
-            0.523,
-            0.949
-          ]
+            0.621,
+            0.963
+          ],
+          "total": 15
         },
         "FC-02": {
-          "detected": 8,
-          "total": 11,
+          "detected": 6,
           "recall_95pct_wilson": [
-            0.434,
-            0.903
-          ]
+            0.409,
+            0.929
+          ],
+          "total": 8
         },
         "FC-03": {
-          "detected": 8,
-          "total": 11,
+          "detected": 11,
           "recall_95pct_wilson": [
-            0.434,
-            0.903
-          ]
+            0.524,
+            0.924
+          ],
+          "total": 14
         },
         "FC-04": {
-          "detected": 4,
-          "total": 5,
+          "detected": 11,
           "recall_95pct_wilson": [
-            0.376,
-            0.964
-          ]
+            0.578,
+            0.957
+          ],
+          "total": 13
         },
         "FC-05": {
           "detected": 10,
-          "total": 12,
           "recall_95pct_wilson": [
-            0.552,
-            0.953
-          ]
+            0.623,
+            0.984
+          ],
+          "total": 11
         }
       },
-      "false_incidents": 9,
-      "false_incidents_per_100_hours": 1.3775510204081625,
-      "alerts": 102,
-      "median_detection_delay_minutes": 10.0,
-      "pre_failure_supported_events": 4,
-      "pre_failure_warnings": 0,
-      "median_lead_minutes": null
+      "detected_events": 51,
+      "duplicate_alerts": 17,
+      "early_unmatched_alerts": 0,
+      "event_recall": 0.8360655737704918,
+      "false_incidents": 7,
+      "false_incidents_per_100_hours": 1.105263157894737,
+      "late_unmatched_alerts": 0,
+      "median_detection_delay_minutes": 35.0,
+      "median_lead_minutes": 40.0,
+      "no_event_alerts": 7,
+      "pre_failure_supported_events": 3,
+      "pre_failure_warnings": 3,
+      "recall_95pct_wilson": [
+        0.724,
+        0.908
+      ],
+      "total_events": 61,
+      "zero_false_rate_95pct_upper_per_100_hours": null
+    },
+    "rules": {
+      "alerts": 53,
+      "by_fault": {
+        "FC-01": {
+          "detected": 13,
+          "recall_95pct_wilson": [
+            0.621,
+            0.963
+          ],
+          "total": 15
+        },
+        "FC-02": {
+          "detected": 6,
+          "recall_95pct_wilson": [
+            0.409,
+            0.929
+          ],
+          "total": 8
+        },
+        "FC-03": {
+          "detected": 12,
+          "recall_95pct_wilson": [
+            0.601,
+            0.96
+          ],
+          "total": 14
+        },
+        "FC-04": {
+          "detected": 12,
+          "recall_95pct_wilson": [
+            0.667,
+            0.986
+          ],
+          "total": 13
+        },
+        "FC-05": {
+          "detected": 10,
+          "recall_95pct_wilson": [
+            0.623,
+            0.984
+          ],
+          "total": 11
+        }
+      },
+      "detected_events": 53,
+      "duplicate_alerts": 0,
+      "early_unmatched_alerts": 0,
+      "event_recall": 0.8688524590163934,
+      "false_incidents": 0,
+      "false_incidents_per_100_hours": 0.0,
+      "late_unmatched_alerts": 0,
+      "median_detection_delay_minutes": 45.0,
+      "median_lead_minutes": 45.0,
+      "no_event_alerts": 0,
+      "pre_failure_supported_events": 3,
+      "pre_failure_warnings": 3,
+      "recall_95pct_wilson": [
+        0.762,
+        0.932
+      ],
+      "total_events": 61,
+      "zero_false_rate_95pct_upper_per_100_hours": 0.4736842105263158
     }
   },
-  "challenger_decision": "Offline comparison only; not promoted. Generic anomaly recall does not diagnose a fault; review false-incident burden alongside family-specific rules.",
-  "work_order_duplicate_rate": {
-    "duplicates": 0,
-    "orders": 0,
-    "status": "Measured by separate transactional integration tests; no orders exported by offline evaluator."
-  }
+  "operating_hours": 633.333333,
+  "partition": "Frozen healthy baseline and healthy development VEH-0001..0080. New reserved holdout VEH-0401..0560, scenario seed 20261024. Historical seed 77881 retained only as historical evidence; no reported test tuning.",
+  "policy_version": "policy-1.0",
+  "public_app_version": "1.0.0",
+  "seed": 20261024,
+  "version": "evaluation-r2"
 }

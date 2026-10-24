@@ -22,7 +22,7 @@ prevents persistence entirely. Insufficient or invalid evidence is unknown, not 
 localize onset more precisely than five minutes; no interpolation invents continuous evidence.
 
 Warning/critical equality is inclusive; recovery equality does not qualify. Severity remains critical
-once escalated until recovery. Recovery resolution is separate from technician-reported outcome.
+once escalated until recovery. Recovery resolution is separate from customer-reported outcome.
 Rule outputs identify suspected conditions and evidence, not unique mechanical causes.
 
 Isolation Forest comparison uses only past/current rolling 4-sample median residual/ratio features,
@@ -36,3 +36,24 @@ See `evaluation/report.json` and TESTING.md for measured numerators/denominators
 false-alert exposure, misses and delay. No point-adjusted accuracy is reported. Only separately labelled
 later capacity-failure onsets qualify for pre-failure lead time; alerts at/after that onset do not count.
 Synthetic observations cannot validate a real vehicle detector or establish real maintenance effectiveness.
+
+## Episode and evaluation revision
+
+An episode ID hashes vehicle, fault code and supporting abnormal onset. First persistence confirmation is
+separate from that supporting onset. Recovery requires 15 observed eligible minutes; ended_at identifies
+the last abnormal observation, recovery_confirmed_at the later confirmation. Missing/off-context evidence
+leaves status Unknown rather than inferring recovery. Batch traces are checked against trusted prefix
+classification; regular five-minute windows use equivalent bounded array operations.
+
+Evaluation-r2 uses new reserved 160-vehicle scenarios, 61 bounded labelled events and 633.333333 supported
+operating hours. Alerts must fall inside their event's inclusive onset/end; no unlimited historical match
+or late grace. Recurrence has separate IDs. First matching alert recalls one event; extra matching alerts
+are duplicates. Early/late/no-event alerts are false. A generic IF alert can recall at most one active event;
+its event-family attribution is bookkeeping, not diagnosis. Exposure sums consecutive engine-on intervals
+≤10 minutes and never extrapolates one final slot.
+
+Rules recalled 53/61 events, with zero observed false incidents, median detection delay 45 minutes;
+95% Wilson recall interval [0.762, 0.932]. Three of three eligible separately labelled later-failure cases
+had advance warnings (median 45 minutes). This very small synthetic subset is not evidence of general
+failure forecasting. IF remains offline (27/61); no policy/fit changes were tuned to this new report.
+Historical report/truth/predictions remain under evaluation/historical and use different matching/support.

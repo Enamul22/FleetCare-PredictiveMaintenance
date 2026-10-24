@@ -1,47 +1,52 @@
 {
-  "version": "operational-1.0",
+  "public_app_version": "1.0.0",
+  "workflow_revision": "shared-response-r2",
+  "synthetic": true,
+  "detected_fault_rows": 70,
+  "joined_fault_rows": 70,
+  "created_orders": 5,
+  "responses": 5,
+  "duplicate_orders": 0,
   "cases": [
     {
       "code": "FC-01",
-      "order_id": "WO-55fbbaf5038aaed30b",
-      "incident_id": "55fbbaf5038aaed30b",
-      "verified": "resolved",
-      "consumed_sku": "PART-BIR-OIL-COOLER-01"
+      "fault_id": "FLT-c5c4148da392274886",
+      "order_id": "WO-CE08330A437BD5EB",
+      "response_id": "RESP-73031709645672eb",
+      "reported_resolution": "Not resolved",
+      "sensor_status_unchanged": true
     },
     {
       "code": "FC-02",
-      "order_id": "WO-ebae0b90f1536ae66b",
-      "incident_id": "ebae0b90f1536ae66b",
-      "verified": "resolved",
-      "consumed_sku": "PART-ALD-THERMOSTAT-01"
+      "fault_id": "FLT-6e56135f694a3a0642",
+      "order_id": "WO-3B8D38C87E92C93D",
+      "response_id": "RESP-b7bec7e091019b0a",
+      "reported_resolution": "Not resolved",
+      "sensor_status_unchanged": true
     },
     {
       "code": "FC-03",
-      "order_id": "WO-50c87da55bf2fd7ddf",
-      "incident_id": "50c87da55bf2fd7ddf",
-      "verified": "resolved",
-      "consumed_sku": "PART-ELM-PRESSURE-SENSOR-01"
+      "fault_id": "FLT-65f0543777ab93b1ec",
+      "order_id": "WO-94C15D16C73509B5",
+      "response_id": "RESP-06aa634ee7c735da",
+      "reported_resolution": "Not resolved",
+      "sensor_status_unchanged": true
     },
     {
       "code": "FC-04",
-      "order_id": "WO-c945befbedee2551a4",
-      "incident_id": "c945befbedee2551a4",
-      "verified": "resolved",
-      "consumed_sku": "PART-ALD-CONNECTION-KIT-01"
+      "fault_id": "FLT-d1bd6341f5630910fe",
+      "order_id": "WO-B351C733A61419BF",
+      "response_id": "RESP-b9ecfed1ae88a0a1",
+      "reported_resolution": "Not resolved",
+      "sensor_status_unchanged": true
     },
     {
       "code": "FC-05",
-      "order_id": "WO-827cd87df2d6f75034",
-      "incident_id": "827cd87df2d6f75034",
-      "verified": "resolved",
-      "consumed_sku": "PART-BIR-ENGINE-MOUNT-01"
+      "fault_id": "FLT-49f87926a08529121c",
+      "order_id": "WO-9AA1F0C4CAD5E344",
+      "response_id": "RESP-10f73123228bf3ea",
+      "reported_resolution": "Not resolved",
+      "sensor_status_unchanged": true
     }
-  ],
-  "orders": 5,
-  "duplicates": 0,
-  "consumed_units": 5,
-  "feedback": 5,
-  "retries": 10,
-  "duplicate_rate": 0.0,
-  "synthetic": true
+  ]
 }

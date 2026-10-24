@@ -1,173 +1,226 @@
 import json
+import os
+import sqlite3
+import subprocess
 import pandas as pd
 import pytest
-from fleetcare.config import FAULTS, DATA
-from fleetcare.detection import Baseline, classify
-from fleetcare.ingestion import Sources
+from fleetcare.config import DATA, ROOT, FAULTS, SETTINGS
 from fleetcare.service import Service
 from fleetcare.simulation import generate
+from fleetcare.pipeline import materialize
+from fleetcare.temporal import supported_minutes
+from fleetcare.evaluation import match_events
+from fleetcare.reporting import filter_faults, page_slice
 
 
-def test_incremental_batches_and_escalation():
-    s = Service()
-    f = Sources().telemetry("FC-01")
-    expected = Baseline().predict(f).oil_temperature_c
-    f.oil_temperature_c = expected + 18
-    for j in range(14):
-        s.ingest(f.iloc[j : j + 1])
-    s.export()
-    assert s.table("incidents").iloc[0].severity == "warning"
-    f.loc[14:, "oil_temperature_c"] = expected.iloc[14:] + 30
-    for j in range(14, 20):
-        s.ingest(f.iloc[j : j + 1])
-    s.export()
-    assert s.table("incidents").iloc[0].severity == "critical"
-    assert len(s.table("orders")) == 1
-    assert "severity_escalated" in set(s.table("audit").kind)
-
-
-def test_replay_transaction_rolls_back_checkpoint_and_incident(monkeypatch):
-    s = Service()
-    real = s.ingest
-
-    def fail_after_ingest(frame):
-        real(frame)
-        raise RuntimeError("Interruption after domain write")
-
-    monkeypatch.setattr(s, "ingest", fail_after_ingest)
-    with pytest.raises(RuntimeError):
-        s.advance("FC-01", 15)
-    assert s.table("incidents").empty
-    assert s.table("replay").empty
-    assert s.db.execute("select count(*) from processed").fetchone()[0] == 0
-    monkeypatch.setattr(s, "ingest", real)
-    s.advance("FC-01", 15)
-    assert len(s.table("orders")) == 1
-
-
-def test_late_repair_extends_future_and_preserves_clock():
-    s = Service()
-    s.advance("FC-01", 100)
-    oid = s.table("orders").iloc[0].id
-    s.transition(oid, "assigned")
-    s.transition(oid, "in_progress")
-    original = s.replay_frame("FC-01")
-    sku = "PART-BIR-OIL-COOLER-01"
-    s.reserve(oid, sku)
-    s.feedback(
-        "LATE", oid, "technician", "component_deterioration", "OIL-COOLER", "replace", {sku: 1}, "resolved"
+def test_time_support_endpoints_gaps_and_engine_off():
+    f = pd.DataFrame(
+        dict(timestamp=pd.date_range("2025-01-01", periods=49, freq="5min", tz="UTC"), engine_on=True)
     )
-    future = s.replay_frame("FC-01")
-    assert len(future) > len(original)
-    pd.testing.assert_series_equal(
-        future.lifetime_engine_hours.iloc[: len(original)], original.lifetime_engine_hours
+    assert supported_minutes(f).sum() == 240
+    f.loc[10, "engine_on"] = False
+    assert supported_minutes(f).sum() == 230
+    f = f.drop(index=[20, 21, 22])
+    assert supported_minutes(f).sum() == 210
+    assert supported_minutes(f.iloc[:1]).sum() == 0
+
+
+def test_bounded_matching_recurrences_duplicates_and_unmatched():
+    events = [
+        dict(
+            event_id="one",
+            case=0,
+            code="FC-01",
+            onset="2025-01-01T01:00Z",
+            end="2025-01-01T01:30Z",
+            failure_onset="2025-01-01T01:25Z",
+        ),
+        dict(
+            event_id="two",
+            case=0,
+            code="FC-01",
+            onset="2025-01-01T03:00Z",
+            end="2025-01-01T03:30Z",
+            failure_onset=None,
+        ),
+    ]
+    times = ["00:55", "01:10", "01:15", "02:00", "03:10", "04:00"]
+    predictions = [dict(case=0, code="FC-01", at=f"2025-01-01T{t}Z") for t in times]
+    m = match_events(predictions, events)
+    assert m["detected_events"] == 2 and m["duplicate_alerts"] == 1
+    assert m["false_incidents"] == 3 and m["early_unmatched_alerts"] == 1 and m["late_unmatched_alerts"] == 2
+    assert m["pre_failure_supported_events"] == m["pre_failure_warnings"] == 1
+    assert m["median_detection_delay_minutes"] == 10
+    simultaneous = events + [dict(events[0], event_id="three", code="FC-02")]
+    m = match_events([dict(case=0, code="unexplained", at="2025-01-01T01:10Z")], simultaneous, generic=True)
+    assert m["detected_events"] == 1
+
+
+def test_cohort_reproducible_across_python_hash_seeds():
+    code = """import hashlib,json,pandas as pd
+from fleetcare.evaluation import cohort
+frames,truth=cohort()
+h=hashlib.sha256(json.dumps(truth,sort_keys=True).encode())
+for f in frames: h.update(pd.util.hash_pandas_object(f,index=True).values.tobytes())
+print(h.hexdigest())
+"""
+    results = []
+    for seed in ["1", "723"]:
+        env = dict(os.environ, PYTHONHASHSEED=seed, PYTHONPATH=str(ROOT / "src"))
+        results.append(
+            subprocess.check_output([__import__("sys").executable, "-c", code], env=env, text=True).strip()
+        )
+    assert results[0] == results[1]
+
+
+def test_full_pipeline_reproducible_and_all_rows_supported(tmp_path):
+    source = tmp_path / "full"
+    generate(source, full=True, n=12)
+    outputs = [tmp_path / "first", tmp_path / "second"]
+    tables = []
+    for output in outputs:
+        output.mkdir()
+        (output / "baseline.json").write_bytes((DATA / "baseline.json").read_bytes())
+        tables.append(materialize(source, output))
+    pd.testing.assert_frame_equal(*tables)
+    assert not (source / "replays.parquet").exists()
+    for row in tables[0].itertuples():
+        f = pd.read_parquet(outputs[0] / row.support_file)
+        assert set(f.vehicle_id) == {row.vehicle_id}
+        assert pd.Timestamp(row.started_at) in set(f.timestamp)
+
+
+def test_filter_sort_pagination_download_and_one_row_per_fault(shared):
+    s, a, path = shared
+    all_rows = s.faults(a)
+    filters = dict(
+        country=all_rows.country.iloc[0], code=all_rows.code.iloc[0], search="veh-", sort="Oldest detection"
     )
-    assert future.lifetime_engine_hours.diff().dropna().gt(0).all()
-    s.advance("FC-01", 12)
-    assert s.table("incidents").iloc[0].state == "resolved"
+    filtered = filter_faults(all_rows, filters)
+    assert len(filtered) > 0
+    assert filtered.confirmed_at.is_monotonic_increasing
+    pages = [page_slice(all_rows, i, 7)[0] for i in range(1, (len(all_rows) + 6) // 7 + 1)]
+    assert pd.concat(pages).fault_id.tolist() == all_rows.fault_id.tolist()
+    assert len(pd.read_csv(__import__("io").StringIO(filtered.to_csv(index=False)))) == len(filtered)
+    assert filter_faults(all_rows, {"search": "no-such-vehicle"}).empty
+    assert all_rows.order_id.isna().all() and all_rows.rating.isna().all()
 
 
-@pytest.mark.parametrize("code", list(FAULTS))
-def test_boundaries_and_recovery_equality(code):
-    f = Sources().telemetry(code).iloc[3:12].reset_index(drop=True)
-    f.operating_mode = "cruise"
-    f.quality_status = "valid"
-    b = Baseline().predict(f)
-    sensor, kind, warning, critical, _, recovery, _ = FAULTS[code]
-
-    def set_value(value):
-        if kind == "difference":
-            f[sensor] = b[sensor] + value
-        elif kind == "deficit":
-            f[sensor] = b[sensor] - value
-        else:
-            f[sensor] = b[sensor] * value
-
-    set_value(critical)
-    # Floating arithmetic is compared at physically meaningful precision below.
-    assert classify(f, code)[0] in ("warning", "critical")
-    set_value(recovery)
-    assert classify(f, code)[0] != "recovered"
-
-
-def test_full_generator_partition_and_aggregation(tmp_path):
-    generate(tmp_path, full=True, n=12)
-    manifest = json.loads((tmp_path / "manifest.json").read_text())
-    assert manifest["full_detailed"]
-    files = list((tmp_path / "telemetry").glob("*/*.parquet"))
-    assert len(files) == 12
-    detail = pd.read_parquet(files[0])
-    daily = pd.read_parquet(tmp_path / "daily.parquet")
-    assert not (tmp_path / "replays.parquet").exists()
-    assert set(detail.timestamp.dt.month) == {10, 11, 12}
-    q4 = daily[(daily.vehicle_id == detail.vehicle_id.iloc[0]) & (daily.date.dt.month >= 10)]
-    assert abs(q4.operating_hours.sum() - len(detail) / 12) < 1e-8
-    assert abs(q4.distance_km.sum() - (detail.vehicle_speed_kmh / 12).sum()) < 1e-8
-    assert detail.lifetime_engine_hours.diff().dropna().ge(0).all()
-    day = detail.timestamp.dt.floor("D").iloc[0]
-    g = detail[detail.timestamp.dt.floor("D") == day]
-    d = daily[(daily.vehicle_id == g.vehicle_id.iloc[0]) & (daily.date == day)].iloc[0]
-    assert d.operating_hours == len(g) / 12
-    assert abs(d.distance_km - (g.vehicle_speed_kmh / 12).sum()) < 1e-8
-
-
-def test_service_history_counters_and_components():
-    daily = pd.read_parquet(DATA / "daily.parquet")
-    hist = pd.read_parquet(DATA / "service_history.parquet")
-    sep = daily[daily.date == pd.Timestamp("2025-09-01", tz="UTC")].merge(hist, on="vehicle_id")
-    assert (sep.lifetime_engine_hours == sep.completed_hours).all()
-    assert (sep.odometer_km == sep.completed_km).all()
-    f = Sources().telemetry("FC-01")
-    assert json.loads(f.installed_component_ids.iloc[0])["FC-01"] == f.vehicle_id.iloc[0] + ":FC-01:original"
-
-
-def test_cooldown_does_not_hide_critical_reactivation():
-    s = Service()
-    source = Sources().telemetry("FC-01").iloc[3:15].reset_index(drop=True)
-    expected = Baseline().predict(source).oil_temperature_c
-    source.oil_temperature_c = expected + 18
-    s.ingest(source.iloc[:4])
-    s.export()
-    recovery = source.iloc[:4].copy()
-    recovery.timestamp = pd.date_range(
-        source.timestamp.iloc[3] + pd.Timedelta(minutes=5), periods=4, freq="5min"
+def test_legacy_migration_preserves_data_and_no_fake_responses(tmp_path):
+    path = tmp_path / "legacy.sqlite"
+    db = sqlite3.connect(path)
+    db.executescript("""create table incidents(id text primary key,vehicle_id text,code text,component_id text,severity text,state text,started text,last_seen text,recurrence_of text,evidence text,policy_version text,baseline_version text,playbook_version text,notification text);
+    create table orders(id text primary key,incident_id text,state text,operational_status text,created_at text);
+    create table feedback(id text primary key,order_id text,role text,finding text,cause text,action text,parts text,completed_at text,outcome text,notes text,effect real);
+    create table audit(id integer primary key,at text,kind text,entity_id text,detail text);""")
+    for i, state in enumerate(["assigned", "in_progress", "completed", "cancelled"]):
+        fid = f"legacy-{i}"
+        db.execute(
+            "insert into incidents values (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                fid,
+                "VEH-0001",
+                "FC-01",
+                "original",
+                "warning",
+                "active",
+                "2025-12-15T09:00:00+00:00",
+                "2025-12-15T10:00:00+00:00",
+                None,
+                "{}",
+                "policy-1.0",
+                "healthy-linear-1.0",
+                "PB-1.0",
+                "notify",
+            ),
+        )
+        db.execute(
+            "insert into orders values (?,?,?,?,?)",
+            (f"old-{i}", fid, state, "ready", "2025-12-16T09:00:00+00:00"),
+        )
+    db.execute(
+        "insert into feedback values (?,?,?,?,?,?,?,?,?,?,?)",
+        (
+            "old-response",
+            "old-2",
+            "technician",
+            "unknown",
+            "unknown",
+            "inspect_only",
+            "{}",
+            "2025-12-16T10:00:00+00:00",
+            "not_resolved",
+            "original notes",
+            0.0,
+        ),
     )
-    recovery.oil_temperature_c = Baseline().predict(recovery).oil_temperature_c
-    s.ingest(recovery)
-    assert s.table("incidents").iloc[0].state == "resolved"
-    again = source.iloc[:3].copy()
-    again.timestamp = pd.date_range(
-        recovery.timestamp.iloc[-1] + pd.Timedelta(minutes=5), periods=3, freq="5min"
+    db.execute(
+        "insert into audit values (1,?,?,?,?)",
+        ("2025-12-15T09:00Z", "original", "legacy", '{"original":true}'),
     )
-    s.ingest(again)
-    assert s.table("incidents").iloc[-1].notification == "cooldown_suppressed"
-    critical = source.iloc[:2].copy()
-    critical.timestamp = pd.date_range(
-        again.timestamp.iloc[-1] + pd.Timedelta(minutes=5), periods=2, freq="5min"
+    db.commit()
+    original = {
+        t: db.execute(f"select * from {t}").fetchall() for t in ["incidents", "orders", "feedback", "audit"]
+    }
+    db.close()
+    s = Service(path)
+    a = s.login("admin@fleetcare.example", "fleetcare-admin-demo")
+    legacy = s.faults(a).query("run_id == 'legacy'")
+    assert len(legacy) == 4 and legacy.order_status.tolist().count("Open") == 2
+    assert set(legacy.order_status) == {"Open", "Completed", "Rejected"}
+    assert legacy.response_decision.isna().all()
+    assert len(s.legacy_feedback(a)) == 1
+    for table in ["incidents", "orders", "feedback"]:
+        assert [tuple(r) for r in s.db.execute(f"select * from {table}")] == original[table]
+    assert (
+        tuple(s.db.execute("select id,at,kind,entity_id,detail from audit where id=1").fetchone())
+        == original["audit"][0]
     )
-    critical.oil_temperature_c = Baseline().predict(critical).oil_temperature_c + 35
-    s.ingest(critical)
-    assert s.table("incidents").iloc[-1].notification == "notify"
-    assert s.table("incidents").iloc[-1].severity == "critical"
-    s.export()
-    assert len(s.table("orders")) == 2
+    count = len(s.faults(a))
+    s.db.close()
+    restart = Service(path)
+    assert len(restart.faults(a)) == count
 
 
-def test_out_of_order_new_input_rejected():
-    s = Service()
-    f = Sources().telemetry("FC-01")
-    s.ingest(f.iloc[10:15])
-    with pytest.raises(ValueError, match="Out-of-order"):
-        s.ingest(f.iloc[:5])
+def test_ended_fault_can_receive_response_without_changing_end(shared):
+    s, a, path = shared
+    f = s.faults(a).iloc[0]
+    # Evidence fixture from a previously observed sensor-recovery episode, not a customer decision.
+    s.db.execute(
+        "update faults set fault_status='Ended',ended_at='2025-12-20T10:00:00+00:00',recovery_confirmed_at='2025-12-20T10:20:00+00:00',sensor_verification='Recovery observed' where fault_id=?",
+        (f.fault_id,),
+    )
+    oid = s.create_order(a, f.fault_id)["order_id"]
+    c = s.login(f"customer{f.customer_id[-4:]}@fleetcare.example", "fleetcare-customer-demo")
+    s.respond(c, oid, dict(decision="Completed", response_at="2026-10-24T12:00:00+00:00"))
+    row = s.fault(a, f.fault_id)
+    assert row["fault_status"] == "Ended" and row["ended_at"] == "2025-12-20T10:00:00+00:00"
+    assert row["reported_resolution"] == "Not sure"
+
+
+def test_private_credentials_replace_demo_access(tmp_path):
+    from fleetcare.auth import hash_password
+
+    config = [
+        dict(
+            user_id="private-admin",
+            email="private-admin@example.test",
+            display_name="Private review admin",
+            role="admin",
+            password_hash=hash_password("test-only-private-password"),
+        )
+    ]
+    s = Service(tmp_path / "private.sqlite", auth_config=config)
+    with pytest.raises(PermissionError):
+        s.login("admin@fleetcare.example", "fleetcare-admin-demo")
+    token = s.login("private-admin@example.test", "test-only-private-password")
+    assert s.principal(token)["role"] == "admin"
 
 
 def test_config_snapshots_match_runtime():
-    from fleetcare.config import ROOT, SETTINGS, POLICY
-
     config = json.loads((ROOT / "config/simulator.json").read_text())
     assert all(config[k] == v for k, v in SETTINGS.model_dump().items())
     policies = json.loads((ROOT / "config/policies.json").read_text())
-    assert policies["version"] == POLICY
     for code, p in FAULTS.items():
         assert policies["faults"][code]["warning"] == p[2]
         assert policies["faults"][code]["critical"] == p[3]

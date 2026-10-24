@@ -1,470 +1,695 @@
-"""Operational UI. Evaluation truth and offline training modules are never imported here."""
+"""Two workspaces backed by authorized, fresh shared-store queries."""
 
 import json
-import os
-import uuid
+from datetime import datetime, timezone
+import math
 import pandas as pd
 import plotly.graph_objects as go
-import plotly.express as px
 import streamlit as st
-from .config import DATA, ROOT, MODELS, FAULTS, FAMILIES, TASKS, POLICY, BASELINE
-from .ingestion import Sources, candidates
-from .detection import evidence
-from .service import Service
+from streamlit.errors import StreamlitSecretNotFoundError
+from .config import DATA, ROOT, MODELS
+from .detection import Baseline, evidence
+from .service import Service, ConflictError
+from .reporting import filter_faults, page_slice
 
-VIEWS = [
-    "Fleet overview",
-    "Asset investigation",
-    "Incidents & work orders",
-    "Technician feedback",
-    "Evaluation & audit",
-]
-SCENARIOS = [
-    "FC-01",
-    "FC-02",
-    "FC-03",
-    "FC-04",
-    "FC-05",
-    "healthy_high_load",
-    "sensor_quality",
-    "missing_data",
-    "multi_fault",
-]
-
-
-@st.cache_data
-def immutable_tables():
-    return (
-        Sources().crm(),
-        pd.read_parquet(DATA / "monthly.parquet"),
-        pd.read_parquet(DATA / "daily.parquet"),
-    )
+LABELS = {
+    "fault_id": "Fault ID",
+    "vehicle_id": "Vehicle",
+    "customer_id": "Customer ID",
+    "customer_name": "Customer",
+    "country": "Country",
+    "city": "City",
+    "fault_name": "Fault",
+    "code": "Fault type",
+    "severity": "Severity",
+    "model_id": "Model",
+    "started_at": "Abnormal start (UTC)",
+    "confirmed_at": "Confirmed detection (UTC)",
+    "ended_at": "Observed end (UTC)",
+    "last_observed_at": "Last observation (UTC)",
+    "creation_status": "Work order creation",
+    "order_id": "Work order",
+    "order_status": "Order status",
+    "fault_status": "Fault status",
+    "sensor_verification": "Sensor verification",
+    "reported_resolution": "Reported resolution",
+    "rating": "Rating",
+    "notes": "Notes",
+    "response_decision": "Customer decision",
+    "finding": "Finding",
+    "confirmed_cause": "Confirmed cause",
+    "action": "Action",
+    "actual_parts": "Actual reported parts",
+    "rejection_reason": "Rejection reason",
+    "response_at": "Response time (UTC)",
+    "order_created_at": "Created (UTC)",
+}
+FINDINGS = {
+    "unknown": "Unknown",
+    "component_deterioration": "Component deterioration",
+    "sensor_issue": "Sensor issue",
+    "no_fault_found": "No fault found",
+    "incorrect_recommendation": "Incorrect recommendation",
+}
+ACTIONS = {
+    "report_only": "Report only",
+    "inspection": "Inspection",
+    "replacement": "Replacement",
+    "connection_repair": "Connection repair",
+}
+UNITS = {
+    "oil_temperature_c": "Oil temperature (°C)",
+    "coolant_temperature_c": "Coolant temperature (°C)",
+    "oil_pressure_bar": "Oil pressure (bar)",
+    "charging_voltage_v": "Charging voltage (V)",
+    "engine_vibration_rms": "Vibration (fictional relative units)",
+}
 
 
 def main():
-    st.set_page_config(page_title="FleetCare · Maintenance operations", page_icon="⚙️", layout="wide")
+    st.set_page_config(page_title="FleetCare · Predictive Maintenance", page_icon="⚙️", layout="wide")
     st.markdown(
-        """<style>
-    .block-container{padding-top:4.5rem;max-width:1500px} h1{letter-spacing:-1.4px} h2,h3{letter-spacing:-.4px}
-    [data-testid="stMetric"]{background:white;border:1px solid #d8e3e9;border-radius:10px;padding:18px}
-    [data-testid="stSidebar"]{border-right:1px solid #d8e3e9}
-    .eyebrow{color:#147d92;font-weight:700;letter-spacing:2px;font-size:12px}
-    </style>""",
+        """<style>.block-container{padding-top:4.5rem;max-width:1600px}h1{letter-spacing:-1.2px}
+    [data-testid="stMetric"]{background:#fff;border:1px solid #dce5ea;padding:12px;border-radius:8px}
+    [data-testid="stSidebar"]{border-right:1px solid #dce5ea}.eyebrow{color:#147d92;font-size:12px;font-weight:700;letter-spacing:2px}</style>""",
         unsafe_allow_html=True,
     )
     if "service" not in st.session_state:
-        mode = os.environ.get("FLEETCARE_MODE", "session")
-        if mode not in ("session", "local"):
-            st.error("FLEETCARE_MODE must be session or local")
+        try:
+            try:
+                cfg = dict(st.secrets["fleetcare"])
+            except (KeyError, StreamlitSecretNotFoundError):
+                cfg = {}
+            st.session_state.service = Service(path=cfg.get("db_path"), auth_config=cfg.get("users"))
+        except (ValueError, OSError) as exc:
+            st.error(f"Application configuration needs attention: {exc}")
             st.stop()
-        path = (
-            os.environ.get("FLEETCARE_DB", str(ROOT / "fleetcare.sqlite")) if mode == "local" else ":memory:"
-        )
-        st.session_state.service = Service(path)
-        st.session_state.mode = mode
     svc = st.session_state.service
-    assets, monthly, daily = immutable_tables()
+    token = st.session_state.get("token")
+    if not token:
+        sign_in(svc)
+        return
+    try:
+        user = svc.principal(token)
+    except PermissionError:
+        st.session_state.pop("token", None)
+        st.rerun()
+    if st.session_state.get("workspace_next"):
+        st.session_state.workspace = st.session_state.pop("workspace_next")
     with st.sidebar:
         st.markdown("### ⚙ FleetCare")
-        st.caption("MAINTENANCE OPERATIONS")
-        view = st.radio("Workspace", VIEWS, key="view")
-        st.divider()
-        st.caption("SYNTHETIC PORTFOLIO DEMO · ENAMUL HAQUE")
-        st.write(
-            "Local persistent state"
-            if st.session_state.mode == "local"
-            else "Private session · temporary changes"
-        )
-        if st.session_state.mode == "session" and st.button("Reset demo", key="reset"):
+        st.caption("PREDICTIVE MAINTENANCE")
+        st.write(user["display_name"])
+        st.caption("Administrator" if user["role"] == "admin" else f"Customer · {user['customer_id']}")
+        if user["role"] == "admin":
+            workspace = st.radio("Workspace", ["Fault overview", "Work order overview"], key="workspace")
+        else:
+            workspace = "Work order overview"
+            st.markdown("**Work order overview**")
+        if st.button("Refresh saved changes", key="refresh"):
+            st.rerun()
+        if st.button("Sign out"):
+            svc.logout(token)
             svc.db.close()
             st.session_state.clear()
             st.rerun()
+        st.divider()
         st.caption(
-            "Fictional fleet, parts, prices and procedures. Independent project; no employer affiliation."
+            "Independent synthetic portfolio demonstration by Enamul Haque. Fictional vehicles, procedures and parts."
+        )
+        st.caption(
+            "Shared single-instance demo state. Customer reports do not prove physical repair or sensor recovery."
         )
     st.markdown('<div class="eyebrow">FLEETCARE / PREDICTIVE MAINTENANCE</div>', unsafe_allow_html=True)
-    st.title(view)
-    if view == "Fleet overview":
-        overview(svc, assets, monthly)
-    elif view == "Asset investigation":
-        investigation(svc, assets, daily)
-    elif view == "Incidents & work orders":
-        orders(svc, assets)
-    elif view == "Technician feedback":
-        feedback(svc, assets)
-    else:
-        audit(svc)
+    try:
+        if workspace == "Fault overview":
+            if st.session_state.get("selected_fault"):
+                fault_detail(svc, token, user)
+            else:
+                fault_overview(svc, token)
+        else:
+            if st.session_state.get("selected_order"):
+                order_detail(svc, token, user)
+            else:
+                order_overview(svc, token, user)
+    except (PermissionError, ValueError) as exc:
+        st.error(str(exc))
 
 
-def overview(svc, assets, monthly):
-    st.write("Prioritize abnormal conditions, investigate evidence, and verify maintenance outcomes.")
-    c = st.columns(4)
-    model = c[0].selectbox("Model", ["All"] + list(MODELS), format_func=lambda x: MODELS.get(x, x))
-    country = c[1].selectbox("Country", ["All"] + sorted(assets.country.unique()))
-    month = c[2].selectbox("Month", sorted(monthly.month.unique(), reverse=True))
-    severity = c[3].selectbox("Severity", ["All", "critical", "warning"])
-    a = assets.copy()
-    if model != "All":
-        a = a[a.model_id == model]
-    if country != "All":
-        a = a[a.country == country]
-    m = monthly[(monthly.month == month) & monthly.vehicle_id.isin(a.vehicle_id)]
-    inc = svc.table("incidents")
-    inc = inc[inc.vehicle_id.isin(a.vehicle_id) & inc.started.str.startswith(month)]
-    if severity != "All":
-        inc = inc[inc.severity == severity]
-    cols = st.columns(4)
-    for col, label, value in zip(
-        cols,
-        ["Vehicles in scope", "Operating hours", "Active incidents", "Sensor-verified resolutions"],
-        [
-            len(a),
-            f"{m.operating_hours.sum():,.0f}",
-            int((inc.state != "resolved").sum()),
-            int((inc.state == "resolved").sum()),
-        ],
-    ):
-        col.metric(label, value)
-    left, right = st.columns([1.5, 1])
+def sign_in(svc):
+    left, right = st.columns([1.3, 1])
     with left:
-        st.subheader("Usage across the fleet")
-        chart = (
-            m.merge(a[["vehicle_id", "model_id"]], on="vehicle_id")
-            .groupby("model_id", as_index=False)
-            .operating_hours.sum()
-        )
-        chart["model"] = chart.model_id.map(MODELS)
-        fig = px.bar(
-            chart,
-            x="model",
-            y="operating_hours",
-            color_discrete_sequence=["#147d92"],
-            labels={"operating_hours": "Operating hours", "model": ""},
-        )
-        fig.update_layout(margin=dict(t=15, l=0, r=0, b=0), height=300)
-        st.plotly_chart(fig, use_container_width=True)
-    with right:
-        st.subheader("Start a guided demonstration")
+        st.markdown('<div class="eyebrow">FLEETCARE / PREDICTIVE MAINTENANCE</div>', unsafe_allow_html=True)
+        st.title("Maintenance, connected.")
         st.write(
-            "1. Open Asset investigation and advance a staged fault.\n\n2. Assign and start its mock work order.\n\n3. Record a finding and action, then advance telemetry to verify the outcome."
+            "Review detected conditions, share clear work orders, and capture the customer’s response in one place."
         )
-        st.info(
-            "Try FC-01 for a successful repair, FC-02 for a stockout, and an inspect-only action for an ineffective repair."
+        st.caption("Independent synthetic portfolio demonstration · Enamul Haque")
+    with right:
+        st.subheader("Sign in")
+        with st.form("sign_in"):
+            email = st.text_input("Email", key="login_email")
+            password = st.text_input("Password", type="password", key="login_password")
+            submit = st.form_submit_button("Sign in", type="primary")
+        if submit:
+            try:
+                st.session_state.token = svc.login(email, password)
+                st.rerun()
+            except PermissionError as exc:
+                st.error(str(exc))
+        if svc.auth_mode == "public_demo":
+            with st.expander("Local demo accounts"):
+                st.write("Administrator: `admin@fleetcare.example` · `fleetcare-admin-demo`")
+                st.write("Customer: `customer0000@fleetcare.example` · `fleetcare-customer-demo`")
+                st.caption(
+                    "Customer emails follow their four-digit customer ID. All demo credentials are intentionally public; use only synthetic data. Configure private credentials before restricting a hosted review."
+                )
+
+
+def display(frame, columns):
+    return (
+        frame.reindex(columns=columns)
+        .rename(columns=LABELS)
+        .astype(object)
+        .where(pd.notna(frame.reindex(columns=columns).rename(columns=LABELS)), "")
+    )
+
+
+def choose_filter(label, column, frame, saved, prefix):
+    canonical = {
+        "creation_status": ["Not created", "Pending", "Created", "Failed"],
+        "order_status": ["Open", "Completed", "Rejected"],
+        "fault_status": ["Active", "Ended", "Unknown"],
+    }
+    options = ["All"] + canonical.get(column, sorted(frame[column].dropna().unique().tolist()))
+    value = saved.get(column, "All")
+    if value not in options:
+        value = "All"
+    return st.selectbox(label, options, index=options.index(value), key=f"{prefix}_{column}")
+
+
+def fault_overview(svc, token):
+    st.title("Fault overview")
+    st.write("Validate a detected episode, review its evidence, and create a work order when appropriate.")
+    frame = svc.faults(token)
+    run = json.loads((DATA / "detection-run.json").read_text())
+    st.caption(
+        f"{run['processed_fleet']:,} vehicles processed · Oct–Dec 2025 · {run['telemetry_rows']:,} detailed observations · detection run {run['generated_at']} · UTC"
+    )
+    saved = st.session_state.get("fault_filters", {})
+    filters = {}
+    cols = st.columns([2, 1, 1, 1])
+    filters["search"] = cols[0].text_input(
+        "Search vehicle, customer, fault or order", value=saved.get("search", ""), key="fault_search"
+    )
+    with cols[1]:
+        filters["country"] = choose_filter("Country", "country", frame, saved, "f")
+    with cols[2]:
+        filters["code"] = choose_filter("Fault type", "code", frame, saved, "f")
+    with cols[3]:
+        filters["creation_status"] = choose_filter("Order creation", "creation_status", frame, saved, "f")
+    with st.expander("More filters and sorting"):
+        columns = st.columns(4)
+        for i, (label, column) in enumerate(
+            [
+                ("Vehicle", "vehicle_id"),
+                ("Customer ID", "customer_id"),
+                ("City", "city"),
+                ("Model", "model_id"),
+                ("Severity", "severity"),
+                ("Fault status", "fault_status"),
+                ("Work-order status", "order_status"),
+            ]
+        ):
+            with columns[i % 4]:
+                filters[column] = choose_filter(label, column, frame, saved, "f")
+        dates = st.date_input(
+            "Episode date range (UTC)",
+            value=(
+                pd.Timestamp(saved.get("date_from", "2025-10-01")).date(),
+                pd.Timestamp(saved.get("date_to", "2025-12-31")).date(),
+            ),
+            key="fault_dates",
         )
-    st.subheader("Operational queue")
-    if inc.empty:
-        st.info(
-            "No incidents in this selection. Advance a replay in Asset investigation to populate the queue."
+        if len(dates) == 2:
+            filters["date_from"], filters["date_to"] = [d.isoformat() for d in dates]
+        options = ["Newest detection", "Oldest detection", "Severity", "Vehicle"]
+        filters["sort"] = st.selectbox(
+            "Sort", options, index=options.index(saved.get("sort", "Newest detection")), key="fault_sort"
         )
+    if filters != saved:
+        st.session_state.fault_page = 1
+        st.session_state.fault_page_epoch = st.session_state.get("fault_page_epoch", 0) + 1
+    st.session_state.fault_filters = filters
+    filtered = filter_faults(frame, filters)
+    cols = st.columns(3)
+    cols[0].metric("Detected episodes", len(frame))
+    cols[1].metric("Matching episodes", len(filtered))
+    cols[2].metric("Awaiting order creation", int(filtered.creation_status.ne("Created").sum()))
+    show = st.checkbox(
+        "Show customer response columns",
+        value=st.session_state.get("feedback_columns", False),
+        key="feedback_columns_control",
+    )
+    st.session_state.feedback_columns = show
+    st.download_button(
+        "Download filtered joined results",
+        filtered.to_csv(index=False).encode(),
+        file_name="fleetcare-filtered-faults.csv",
+        mime="text/csv",
+    )
+    if filtered.empty:
+        st.info("No faults match these filters. Change the filters to explore the full result.")
+    else:
+        size = 25
+        page = int(st.session_state.get("fault_page", 1))
+        page = min(page, max(1, math.ceil(len(filtered) / size)))
+        page = st.number_input(
+            "Page",
+            min_value=1,
+            max_value=max(1, math.ceil(len(filtered) / size)),
+            value=page,
+            step=1,
+            key=f"fault_page_control_{st.session_state.get('fault_page_epoch', 0)}",
+        )
+        st.session_state.fault_page = page
+        visible, _, pages = page_slice(filtered, page, size)
+        st.caption(
+            f"{len(filtered):,} matching / {len(frame):,} total · page {page} of {pages}. Select a row to open its fault."
+        )
+        columns = [
+            "vehicle_id",
+            "customer_id",
+            "customer_name",
+            "country",
+            "city",
+            "fault_name",
+            "severity",
+            "started_at",
+            "fault_status",
+            "creation_status",
+            "order_id",
+            "order_status",
+        ]
+        if show:
+            columns += [
+                "response_decision",
+                "finding",
+                "confirmed_cause",
+                "action",
+                "actual_parts",
+                "reported_resolution",
+                "rating",
+                "notes",
+                "rejection_reason",
+                "response_at",
+            ]
+        event = st.dataframe(
+            display(visible, columns),
+            hide_index=True,
+            width="stretch",
+            on_select="rerun",
+            selection_mode="single-row",
+            key=f"fault_rows_{page}_{st.session_state.get('selection_epoch', 0)}",
+        )
+        if event.selection.rows:
+            st.session_state.selected_fault = visible.iloc[event.selection.rows[0]].fault_id
+            st.rerun()
+    with st.expander("Detection run and audit · administrator"):
+        report = json.loads((ROOT / "evaluation/report.json").read_text())
+        st.write(
+            f"Complete operational result: {run['fault_episodes']} episodes. Separate held-out evaluation: {report['events']} events, {report['operating_hours']:.2f} supported operating hours."
+        )
+        st.caption(
+            "Evaluation and model cards document event matching, uncertainty and synthetic-only validity. No recovery is inferred from a customer decision."
+        )
+        st.dataframe(svc.audit(token).head(100), hide_index=True, width="stretch")
+        legacy = svc.legacy_feedback(token)
+        if not legacy.empty:
+            st.write("Preserved legacy feedback history · no final customer decisions inferred")
+            st.dataframe(legacy, hide_index=True, width="stretch")
+
+
+def back(key, label):
+    if st.button(label):
+        st.session_state.pop(key, None)
+        st.session_state.selection_epoch = st.session_state.get("selection_epoch", 0) + 1
+        st.rerun()
+
+
+def summary(f):
+    st.subheader(f"{f['fault_name']} · {f['vehicle_id']}")
+    st.write(
+        f"**{f['customer_name']}** · {f['customer_id']} · {MODELS.get(f['model_id'], f['model_id'])} · {f['city']}, {f['country']}"
+    )
+    st.caption(
+        f"{f['severity'].title()} severity · Fault: {f['fault_status']} · Sensor verification: {f['sensor_verification']}"
+    )
+    if f.get("legacy_state"):
+        st.caption(
+            f"Imported legacy state: {f['legacy_state']}. Original audit/history retained; missing response/end details are not fabricated."
+        )
+
+
+def fault_detail(svc, token, user):
+    f = svc.fault(token, st.session_state.selected_fault)
+    back("selected_fault", "← Back to faults")
+    summary(f)
+    if svc.auth_mode == "public_demo":
+        st.caption(f"Assigned demo customer login: customer{f['customer_id'][-4:]}@fleetcare.example")
+    if f["order_id"]:
+        st.success(f"Created / exported · {f['order_id']} · {f['order_status']}")
+        if st.button("Open work order", type="primary"):
+            st.session_state.selected_order = f["order_id"]
+            st.session_state.workspace_next = "Work order overview"
+            st.rerun()
+    else:
+        if f["creation_status"] == "Failed":
+            st.error("The last export failed. No work order was created. Retry this selected fault.")
+        if st.button("Create work order", type="primary"):
+            result = svc.create_order(token, f["fault_id"])
+            if result["ok"]:
+                st.session_state.flash = f"Created / exported · {result['order_id']}"
+                st.rerun()
+            else:
+                st.error(result["error"])
+    if st.session_state.get("flash"):
+        st.success(st.session_state.pop("flash"))
+    snapshot = svc.order(token, f["order_id"])["snapshot"] if f["order_id"] else svc.snapshot(f)
+    tabs = st.tabs(["Time series & evidence", "Recommended actions", "Parts list"])
+    with tabs[0]:
+        chart(svc, token, f, snapshot)
+    with tabs[1]:
+        actions(snapshot)
+    with tabs[2]:
+        proposed_parts(snapshot)
+    if f["order_id"]:
+        response = svc.order(token, f["order_id"])["response"]
+        if response:
+            st.subheader("Customer response")
+            response_readback(response)
+
+
+def actions(snapshot):
+    st.subheader("Recommended actions")
+    for i, task in enumerate(snapshot["actions"], 1):
+        st.write(f"{i}. {task}")
+    st.caption(
+        f"Fictional procedures · {snapshot['playbook_id']} / {snapshot['playbook_version']}. This is a suspected condition, not a proven root cause."
+    )
+
+
+def proposed_parts(snapshot):
+    st.subheader("Proposed parts")
+    parts = pd.DataFrame(snapshot["parts"])
+    if parts.empty:
+        st.info("No compatible candidate parts were included in this saved recommendation.")
     else:
         st.dataframe(
-            inc[["vehicle_id", "code", "severity", "state", "started"]], hide_index=True, width="stretch"
+            parts[["name", "sku", "quantity"]].rename(
+                columns={"name": "Part", "sku": "Part ID", "quantity": "Proposed quantity"}
+            ),
+            hide_index=True,
+            width="stretch",
         )
     st.caption(
-        "Daily history: Jan–Dec 2025, all 1,000 vehicles. Detailed telemetry: nine staged windows on 15 Dec, 5-minute samples. Overview incident counts reflect replayed state, not whole-fleet fault prevalence."
-    )
-    st.dataframe(
-        a[["vehicle_id", "model_id", "country", "age_years", "usage_profile"]].head(100),
-        hide_index=True,
-        width="stretch",
+        "Conditional candidates. Findings determine actual replacement; all listed parts are not automatically required."
     )
 
 
-def investigation(svc, assets, daily):
-    source = st.radio("Investigation source", ["Guided replay", "Fleet history"], horizontal=True)
-    if source == "Fleet history":
-        vehicle = st.selectbox("Asset", assets.vehicle_id)
-        a = assets[assets.vehicle_id == vehicle].iloc[0]
-        st.write(f"**{vehicle} · {MODELS[a.model_id]} · {a.country}**")
-        history = daily[daily.vehicle_id == vehicle].copy()
-        month = st.selectbox(
-            "History month", sorted(history.date.dt.strftime("%Y-%m").unique(), reverse=True)
-        )
-        history = history[history.date.dt.strftime("%Y-%m") == month]
-        fig = px.line(
-            history,
-            x="date",
-            y="operating_hours",
-            labels={"date": "UTC day", "operating_hours": "Operating hours"},
-        )
-        st.plotly_chart(fig, use_container_width=True)
-        st.dataframe(history, hide_index=True, width="stretch")
-        service_history = pd.read_parquet(DATA / "service_history.parquet")
-        st.dataframe(service_history[service_history.vehicle_id == vehicle], hide_index=True, width="stretch")
+def chart(svc, token, f, snapshot, order_id=None):
+    data = svc.evidence(token, f["fault_id"], order_id)
+    if data.empty:
         st.info(
-            "Daily history is available for every asset. The compact package includes detailed sensor history only for the labelled guided replays."
+            "Supporting observations are unavailable for this preserved legacy record. No replacement curve is invented."
         )
         return
-    st.caption("Staged demonstration scenarios are separate from the held-out evaluation cohort.")
-    scenario = st.selectbox("Replay scenario", SCENARIOS, key="scenario")
-    f = svc.replay_frame(scenario)
-    vehicle = f.vehicle_id.iloc[0]
-    a = assets[assets.vehicle_id == vehicle].iloc[0]
-    st.write(f"**{vehicle}** · {MODELS[a.model_id]} · {a.country} · {a.age_years:g} years")
-    row = svc.db.execute("select cursor from replay where scenario=?", (scenario,)).fetchone()
-    cursor = row[0] if row else 0
-    c = st.columns([1, 1, 2])
-    steps = c[0].selectbox("Advance by", [3, 6, 12], format_func=lambda x: f"{x * 5} minutes")
-    fail = c[1].checkbox("Simulate export interruption")
-    if c[2].button("Advance replay", type="primary"):
-        svc.advance(scenario, steps, fail)
-        st.rerun()
-    st.progress(cursor / len(f), text=f"{cursor} / {len(f)} samples ingested · 5-minute operating cadence")
-    if cursor == 0:
-        st.info(
-            "Advance the replay to inspect observed evidence. Future readings are hidden until replay reaches them."
+    baseline = Baseline(DATA / "baseline.json")
+    baseline.parameters = snapshot["baseline_parameters"]
+    e = evidence(data, f["code"], baseline)
+    sensor, kind, warn, crit, _, _, _ = snapshot["policy"]
+    plot = pd.DataFrame(
+        dict(
+            timestamp=data.timestamp,
+            observed=e.observed.where(data.quality_status.eq("valid")),
+            expected=e.expected,
         )
-        return
-    seen = f.iloc[:cursor]
-    quality = seen.quality_status.iloc[-1]
-    if quality != "valid":
-        st.warning(
-            f"Latest telemetry quality: {quality}. Condition is unknown; invalid samples cannot establish recovery."
-        )
-    code = st.selectbox(
-        "Evidence channel",
-        list(FAULTS),
-        format_func=lambda x: f"{x} · {FAULTS[x][-1]}",
-        index=list(FAULTS).index(scenario) if scenario in FAULTS else 0,
     )
-    e = evidence(seen, code)
-    from .detection import classify
-
-    status, _ = classify(seen, code, svc.baseline)
-    st.write(f"**Evidence status: {status}** · {FAULTS[code][-1]}")
+    for threshold, label in [(warn, "Warning boundary"), (crit, "Critical boundary")]:
+        plot[label] = (
+            e.expected - threshold
+            if kind == "deficit"
+            else e.expected * threshold
+            if kind.startswith("ratio")
+            else e.expected + threshold
+        )
+    # Insert explicit breaks at long gaps so the chart cannot bridge nights/missing coverage.
+    extra = []
+    for i in range(1, len(plot)):
+        if (plot.timestamp.iloc[i] - plot.timestamp.iloc[i - 1]).total_seconds() > 600:
+            extra.append({"timestamp": plot.timestamp.iloc[i - 1] + pd.Timedelta(minutes=5)})
+    if extra:
+        plot = pd.concat([plot, pd.DataFrame(extra)], ignore_index=True).sort_values("timestamp")
     fig = go.Figure()
-    fig.add_trace(
-        go.Scatter(
-            x=seen.timestamp,
-            y=e.observed,
-            name="Observed",
-            line=dict(color="#147d92", width=3),
-            connectgaps=False,
+    for column, color, dash in [
+        ("observed", "#137e92", "solid"),
+        ("expected", "#687d8b", "dash"),
+        ("Warning boundary", "#c38431", "dot"),
+        ("Critical boundary", "#b54f4b", "dot"),
+    ]:
+        fig.add_trace(
+            go.Scatter(
+                x=plot.timestamp,
+                y=plot[column],
+                name={"observed": "Observed", "expected": "Expected healthy baseline"}.get(column, column),
+                line=dict(color=color, dash=dash),
+                connectgaps=False,
+            )
         )
+    end = f["ended_at"] or f["last_observed_at"]
+    fig.add_vrect(x0=f["started_at"], x1=end, fillcolor="#df8d6e", opacity=0.13, line_width=0)
+    fig.add_vline(
+        x=pd.Timestamp(f["confirmed_at"]).timestamp() * 1000, line_color="#b54f4b", line_dash="dash"
     )
-    fig.add_trace(
-        go.Scatter(
-            x=seen.timestamp,
-            y=e.expected,
-            name="Expected healthy baseline",
-            line=dict(color="#607D8B", dash="dash"),
-        )
-    )
-    sensor, kind, warn, _, _, _, _ = FAULTS[code]
-    boundary = (
-        e.expected - warn
-        if kind == "deficit"
-        else e.expected * warn
-        if kind.startswith("ratio")
-        else e.expected + warn
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=seen.timestamp, y=boundary, name="Warning boundary", line=dict(color="#b96b20", dash="dot")
-        )
-    )
-    inc = svc.table("incidents")
-    for i in inc[inc.vehicle_id == vehicle].itertuples():
-        fig.add_vline(x=pd.Timestamp(i.started).timestamp() * 1000, line_color="#b13d38", line_dash="dot")
+    if f["ended_at"]:
+        fig.add_vline(x=pd.Timestamp(f["ended_at"]).timestamp() * 1000, line_color="#147d92", line_dash="dot")
     fig.update_layout(
-        yaxis_title=sensor.replace("_", " "),
-        xaxis_title="Event time (UTC)",
-        height=370,
-        legend=dict(orientation="h", y=1.15),
-        margin=dict(t=45, b=0, l=0, r=0),
+        height=390,
+        yaxis_title=UNITS[sensor],
+        xaxis_title="Observation time (UTC)",
+        margin=dict(t=45, l=0, r=0, b=0),
+        legend=dict(orientation="h", y=1.16),
     )
     st.plotly_chart(fig, use_container_width=True)
-    c = st.columns(3)
-    c[0].metric("Valid eligible samples", f"{int(e.valid.sum())} / {len(e)}")
-    c[1].metric("Lifetime engine hours", f"{seen.lifetime_engine_hours.iloc[-1]:,.1f}")
-    c[2].metric("Odometer (km)", f"{seen.odometer_km.iloc[-1]:,.0f}")
+    st.write(
+        f"**Supporting abnormal start:** {f['started_at']} · **First persistence confirmation:** {f['confirmed_at']}"
+    )
+    if f["ended_at"]:
+        st.write(
+            f"**Last observed abnormal reading:** {f['ended_at']} · **Recovery confirmed:** {f['recovery_confirmed_at']}"
+        )
+    else:
+        st.write("**Observed end:** not established. Lack of later data does not show recovery.")
+    proof = json.loads(f["evidence"])
     st.caption(
-        "Thresholds are fictional policy parameters. Five-minute samples bound timing precision; single samples cannot establish persistence. Missing or ineligible data implies unknown condition."
+        f"First confirmed evidence: {proof.get('observed', 0):.2f} observed versus {proof.get('expected', 0):.2f} expected; {proof.get('comparison', kind)} {proof.get('value', 0):.2f}, threshold {proof.get('threshold', '—')} across {proof.get('window_minutes', '—')} minutes. Five-minute cadence; valid coverage ≥80%; startup exclusions apply."
     )
-    with st.expander("Measurements and comparison evidence"):
-        st.dataframe(e, hide_index=True, width="stretch")
-    st.subheader("Component and service history")
-    st.dataframe(svc.table("components").query("vehicle_id == @vehicle"), hide_index=True, width="stretch")
-    history = pd.read_parquet(DATA / "service_history.parquet")
-    st.dataframe(history[history.vehicle_id == vehicle], hide_index=True, width="stretch")
-    own_orders = svc.table("orders").merge(
-        inc[inc.vehicle_id == vehicle][["id"]],
-        left_on="incident_id",
-        right_on="id",
-        suffixes=("", "_incident"),
+    st.caption(
+        f"Saved recommendation evidence through {snapshot['evidence_as_of']}. Latest observed data: {f['last_observed_at']}."
     )
-    feedback_rows = svc.table("feedback")
-    st.dataframe(feedback_rows[feedback_rows.order_id.isin(own_orders.id)], hide_index=True, width="stretch")
-    with st.expander("Daily operating history · all periods"):
-        st.dataframe(daily[daily.vehicle_id == vehicle], hide_index=True, width="stretch")
+    if f["last_observed_at"] > snapshot["evidence_as_of"]:
+        st.info("Additional sensor observations were received after this order’s recommendation was saved.")
 
 
-def orders(svc, assets):
-    o = svc.table("orders")
-    st.caption(
-        "Work orders are automatically exported to a mock service system after persistent evidence. All actions stay within this demo."
+def order_overview(svc, token, user):
+    st.title("Work order overview")
+    st.write("Review assigned maintenance recommendations and submit a final response.")
+    frame = svc.orders(token)
+    c = st.columns([1, 2])
+    saved = st.session_state.get("order_filters", {})
+    status = c[0].selectbox(
+        "Order status",
+        ["Open", "Completed", "Rejected", "All"],
+        index=["Open", "Completed", "Rejected", "All"].index(saved.get("status", "Open")),
+        key="order_status_filter",
     )
-    if st.button("Retry pending exports"):
-        svc.export()
-        st.rerun()
-    with st.expander("Export delivery and retries"):
-        st.dataframe(svc.table("outbox"), hide_index=True, width="stretch")
-    if o.empty:
-        st.info("No exported orders yet. Advance an incident replay, or retry pending exports.")
+    search = c[1].text_input("Search order or vehicle", value=saved.get("search", ""), key="order_search")
+    st.session_state.order_filters = dict(status=status, search=search)
+    filtered = frame if status == "All" else frame[frame.order_status == status]
+    if search.strip():
+        text = (
+            filtered[["order_id", "vehicle_id", "fault_name", "customer_name"]]
+            .fillna("")
+            .agg(" ".join, axis=1)
+        )
+        filtered = filtered[text.str.contains(search.strip(), case=False, regex=False)]
+    st.caption(
+        f"{len(filtered)} matching / {len(frame)} assigned orders. Select a row to open its actions, proposed parts and response."
+    )
+    if filtered.empty:
+        st.info(
+            "No orders match this selection. Newly saved orders and responses appear after Refresh saved changes."
+        )
         return
-    st.dataframe(o, hide_index=True, width="stretch")
-    oid = st.selectbox("Work order", o.id, key="order")
-    ctx = svc.order_context(oid)
-    a = assets[assets.vehicle_id == ctx["vehicle_id"]].iloc[0]
-    st.subheader(f"{ctx['code']} · {FAULTS[ctx['code']][-1]}")
-    st.write(
-        f"**{ctx['severity'].upper()} · {ctx['state']}** | Vehicle {ctx['vehicle_id']} | Customer {a.customer_id}"
+    page = st.number_input(
+        "Page",
+        min_value=1,
+        max_value=max(1, math.ceil(len(filtered) / 25)),
+        value=1,
+        step=1,
+        key="order_page_control",
     )
-    st.write(TASKS[ctx["code"]])
-    proof = json.loads(ctx["evidence"])
-    st.write(
-        f"Trigger: measured **{proof['observed']:.2f}**, expected **{proof['expected']:.2f}**, comparison **{proof['value']:.2f}** at {proof['timestamp']}."
-    )
-    st.write(
-        f"{proof.get('sensor', FAULTS[ctx['code']][0])}: {proof.get('valid_samples', '—')} valid samples across {proof.get('window_minutes', '—')} minutes; {proof.get('comparison', '')} threshold {proof.get('threshold', '—')}."
-    )
-    st.caption(
-        f"Suspected condition; root cause requires investigation. {ctx['policy_version']} · {ctx['baseline_version']} · {ctx['playbook_version']}"
-    )
-    for state, label in [
-        ("assigned", "Assign order"),
-        ("in_progress", "Start work"),
-        ("cancelled", "Cancel order"),
-    ]:
-        allowed = {
-            "created": ["assigned", "cancelled"],
-            "assigned": ["in_progress", "cancelled"],
-            "in_progress": ["cancelled"],
-        }
-        if state in allowed.get(ctx["order_state"], []) and st.button(label, key=state):
-            svc.transition(oid, state)
-            st.rerun()
-    st.subheader("Compatible candidate parts")
-    parts = candidates(ctx["code"], a.model_id, ctx["code"]).merge(svc.table("inventory"), on="sku")
-    st.dataframe(
-        parts[["sku", "family", "available", "reserved", "unit_price_eur", "currency", "supplier"]],
+    visible, _, _ = page_slice(filtered, page, 25)
+    event = st.dataframe(
+        display(
+            visible,
+            [
+                "order_id",
+                "vehicle_id",
+                "fault_name",
+                "severity",
+                "country",
+                "city",
+                "order_created_at",
+                "order_status",
+            ],
+        ),
         hide_index=True,
         width="stretch",
+        on_select="rerun",
+        selection_mode="single-row",
+        key=f"order_rows_{page}_{st.session_state.get('selection_epoch', 0)}",
     )
-    st.caption("Candidates only. Findings determine actual consumption; stockouts remain visible.")
-    if ctx["order_state"] not in ("completed", "cancelled"):
-        sku = st.selectbox("Candidate to reserve", parts.sku)
-        if st.button("Receive one unit · mock ERP delivery"):
-            svc.receive_delivery(str(uuid.uuid4()), sku, 1)
-            st.success("Fictional ERP delivery received; reserve the unit to resume work.")
-        if st.button("Reserve one candidate"):
-            if svc.reserve(oid, sku):
-                st.success("One unit reserved. Repeating this action has no duplicate effect.")
-            else:
-                st.warning("Unavailable · waiting for parts. No incompatible substitution was made.")
-    st.dataframe(svc.table("lines").query("order_id == @oid"), hide_index=True, width="stretch")
+    if event.selection.rows:
+        st.session_state.selected_order = visible.iloc[event.selection.rows[0]].order_id
+        st.rerun()
 
 
-def feedback(svc, assets):
-    o = svc.table("orders")
-    o = o[o.state == "in_progress"]
-    st.write(
-        "Capture workshop findings and actual actions. Completion starts verification; the incident remains open until subsequent evidence supports recovery."
-    )
-    if o.empty:
+def order_detail(svc, token, user):
+    order = svc.order(token, st.session_state.selected_order)
+    back("selected_order", "← Back to work orders")
+    st.title(order["order_id"])
+    summary(order["fault"])
+    st.write(f"**{order['status']}** · Created {order['created_at']} (UTC)")
+    tabs = st.tabs(["Actions & proposed parts", "Time series & evidence"])
+    with tabs[0]:
+        actions(order["snapshot"])
+        proposed_parts(order["snapshot"])
+    with tabs[1]:
+        chart(svc, token, order["fault"], order["snapshot"], order["order_id"])
+    st.subheader("Customer response")
+    if order["response"]:
+        response_readback(order["response"])
+    elif order["status"] != "Open":
         st.info(
-            "Assign and start a work order first. Completed feedback remains visible in Evaluation & audit."
+            "Legacy terminal order. Its original history is preserved; no final customer response is invented."
         )
-        return
-    oid = st.selectbox("Order in progress", o.id, key="feedback_order")
-    ctx = svc.order_context(oid)
-    a = assets[assets.vehicle_id == ctx["vehicle_id"]].iloc[0]
-    st.write(f"**{ctx['vehicle_id']} · {ctx['code']} · {FAULTS[ctx['code']][-1]}**")
-    with st.form("feedback"):
-        role = st.selectbox("Reporting role", ["technician", "customer"])
-        finding = st.selectbox(
-            "Finding",
-            [
-                "component_deterioration",
-                "sensor_bias",
-                "no_fault_found",
-                "incorrect_recommendation",
-                "unknown",
-            ],
+    elif user["role"] == "customer":
+        response_form(svc, token, order)
+    else:
+        st.info(
+            "Awaiting a response from the assigned customer. Administrators can inspect but cannot impersonate a customer response."
         )
-        cause = st.selectbox("Confirmed cause", ["unknown"] + FAMILIES[ctx["code"]])
-        action = st.selectbox("Action", ["replace", "inspect_only", "connection_repair", "report_only"])
-        p = candidates(ctx["code"], a.model_id, ctx["code"])
-        parts = st.multiselect("Actual parts · quantity 1 each", p.sku)
-        outcome = st.selectbox("Reported resolution", ["unknown", "resolved", "not_resolved"])
-        notes = st.text_area(
-            "Notes",
-            help="Demo setting: include “partial” for a partial effect when the correct component is repaired.",
+
+
+def response_readback(response):
+    st.write(f"**Decision: {response['decision']}** · Response time: {response['response_at']} (UTC)")
+    if response["decision"] == "Rejected":
+        st.write("**Rejection reason:** " + response["rejection_reason"])
+    else:
+        st.write(
+            f"Finding: {FINDINGS.get(response['finding'], response['finding'])} · Confirmed cause: {str(response['confirmed_cause']).replace('-', ' ').title()} · Action: {ACTIONS.get(response['action'], response['action'])}"
         )
-        submitted = st.form_submit_button("Record feedback", type="primary")
-    st.caption(
-        "Staged mechanical causes use the first compatible family in each playbook. Inspect-only or replacing another cause demonstrates ineffective repair. No synthetic outcome proves real-world effectiveness."
+        st.write("Reported resolution: " + response["reported_resolution"])
+        parts = json.loads(response["actual_parts"] or "{}")
+        if parts:
+            st.dataframe(
+                pd.DataFrame([{"Actual reported part": k, "Quantity": v} for k, v in parts.items()]),
+                hide_index=True,
+            )
+    st.write(
+        "Rating: " + (str(response["rating"]) + " / 5" if response["rating"] is not None else "Not rated")
     )
+    if response["notes"]:
+        st.write("Notes: " + response["notes"])
+    st.caption(
+        "A customer-reported outcome is separate from evidence-derived fault status and sensor verification."
+    )
+
+
+def response_form(svc, token, order):
+    decision = st.radio(
+        "Decision",
+        ["Completed", "Rejected"],
+        index=None,
+        horizontal=True,
+        key="response_decision_" + order["order_id"],
+    )
+    action = "report_only"
+    if decision == "Completed":
+        allowed = ["report_only", "inspection", "replacement"] + (
+            ["connection_repair"] if order["fault"]["code"] == "FC-04" else []
+        )
+        action = st.selectbox(
+            "Action performed",
+            allowed,
+            format_func=lambda x: ACTIONS[x],
+            key="response_action_" + order["order_id"],
+        )
+    with st.form("customer_response"):
+        finding, cause, resolution = "unknown", "unknown", "Not sure"
+        parts = {}
+        reason = ""
+        if decision == "Completed":
+            finding = st.selectbox("Finding", list(FINDINGS), format_func=lambda x: FINDINGS[x])
+            cause = st.selectbox(
+                "Confirmed cause",
+                ["unknown"] + [p["family"] for p in order["snapshot"]["parts"]],
+                format_func=lambda x: x.replace("-", " ").title(),
+            )
+            if action == "replacement":
+                proposals = {p["sku"]: p for p in order["snapshot"]["parts"]}
+                actual = st.multiselect(
+                    "Actual compatible parts",
+                    list(proposals),
+                    format_func=lambda x: f"{proposals[x]['name']} · {x}",
+                )
+                for sku in actual:
+                    parts[sku] = st.number_input(
+                        f"Quantity · {sku}",
+                        min_value=1,
+                        max_value=proposals[sku]["quantity"],
+                        value=1,
+                        step=1,
+                    )
+            resolution = st.selectbox("Reported resolution", ["Not sure", "Resolved", "Not resolved"])
+        elif decision == "Rejected":
+            reason = st.text_area("Rejection reason (required)")
+        c = st.columns(3)
+        day = c[0].date_input("Response date (UTC)", value=datetime.now(timezone.utc).date())
+        time = c[1].time_input(
+            "Response time (UTC)",
+            value=datetime.now(timezone.utc).time().replace(second=0, microsecond=0, tzinfo=None),
+        )
+        rating = c[2].selectbox("Rating (optional)", ["Not rated", 1, 2, 3, 4, 5])
+        notes = st.text_area("Notes (optional)", max_chars=4000)
+        submitted = st.form_submit_button("Submit response", type="primary", disabled=decision is None)
     if submitted:
+        payload = dict(
+            decision=decision,
+            finding=finding,
+            confirmed_cause=cause,
+            action=action,
+            actual_parts=parts,
+            reported_resolution=resolution,
+            rejection_reason=reason,
+            rating=None if rating == "Not rated" else rating,
+            notes=notes,
+            response_at=datetime.combine(day, time, tzinfo=timezone.utc).isoformat(),
+        )
         try:
-            if parts and role == "technician":
-                # Reservation attempts remain explicit. Completion transaction checks every chosen part.
-                for sku in parts:
-                    svc.reserve(oid, sku)
-            effect = svc.feedback(
-                str(uuid.uuid4()),
-                oid,
-                role,
-                finding,
-                cause,
-                action,
-                {s: 1 for s in parts},
-                outcome,
-                notes,
-            )
-            st.success("Feedback recorded. Advance the same replay to inspect subsequent verification.")
-            st.caption(
-                f"Synthetic branch setting: {effect:.0%} repair effect. Offline evaluation is unchanged."
-            )
-        except ValueError as err:
-            st.error(str(err))
-
-
-def audit(svc):
-    st.write("Held-out synthetic performance, delivery history, and traceable operational decisions.")
-    report = json.loads((ROOT / "evaluation/report.json").read_text())
-    rows = []
-    for name, m in report["methods"].items():
-        rows.append(
-            dict(
-                method=name,
-                detected=f"{m['detected_events']} / {m['total_events']}",
-                recall=f"{m['event_recall']:.1%}",
-                false_incidents=m["false_incidents"],
-                false_per_100h=round(m["false_incidents_per_100_hours"], 2),
-                delay_min=m["median_detection_delay_minutes"],
-            )
-        )
-    st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
-    st.caption(
-        f"{report['heldout_vehicles']} held-out vehicles · {report['operating_hours']:.1f} operating hours · {report['events']} injected events · curated replays excluded."
-    )
-    st.info(report["challenger_decision"])
-    with st.expander("Fault-family recall, denominators and uncertainty"):
-        st.json(report["methods"]["rules"])
-        st.write(report["event_matching"])
-    st.warning(
-        "Synthetic validity only. Some mild or gradual conditions remain undetected. Abnormal-condition detection is not a general guarantee of warning before failure."
-    )
-    tab1, tab2, tab3 = st.tabs(["Operational audit", "Feedback & verification", "Data lineage"])
-    with tab1:
-        st.dataframe(svc.table("audit").iloc[::-1], hide_index=True, width="stretch")
-    with tab2:
-        st.dataframe(svc.table("feedback"), hide_index=True, width="stretch")
-        st.dataframe(svc.table("incidents"), hide_index=True, width="stretch")
-    with tab3:
-        st.write(f"Policy {POLICY} · baseline {BASELINE} · playbooks PB-1.0")
-        st.json(json.loads((DATA / "manifest.json").read_text()))
-        st.caption(
-            "CRM / ERP / telemetry are fictional exports joined by canonical asset mapping. Hidden simulator truth is stored offline in evaluation/truth.json and never queried by application inference."
-        )
+            svc.respond(token, order["order_id"], payload)
+            st.success("Response saved. The administrator’s fault row now includes your response.")
+            st.rerun()
+        except (ValueError, ConflictError) as exc:
+            st.error(str(exc))

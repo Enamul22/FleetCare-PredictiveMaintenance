@@ -1,23 +1,18 @@
 # FleetCare — Predictive Maintenance
 
-A working synthetic fleet-maintenance application by **Enamul Haque**: observed telemetry → persistent
-abnormal-condition evidence → incident → mock work order → compatible parts → technician feedback →
-subsequent sensor verification.
+A synthetic maintenance workflow by **Enamul Haque**, with two workspaces:
 
-[Repository](https://github.com/Enamul22/FleetCare-PredictiveMaintenance) · Python 3.12 · Streamlit ·
-SQLite · pandas/Parquet · scikit-learn · Plotly
+**Complete detected-fault dataset → administrator reviews evidence → Create work order → assigned customer reads actions/parts → Completed or Rejected response → the same fault row shows the response.**
 
-![Fleet overview](docs/evidence/overview-wide.jpg)
+[Repository](https://github.com/Enamul22/FleetCare-PredictiveMaintenance) · Python 3.12 · Streamlit · SQLite · pandas/Parquet · scikit-learn · Plotly. Public package version remains **1.0.0**; entry point remains **app.py**.
 
-FleetCare demonstrates operational integration and writeback for a fictional 1,000-vehicle petrol fleet.
-All vehicles, customers, sensor readings, countries' operating assumptions, procedures, SKUs, prices and
-outcomes are synthetic. This is an independent portfolio project, with no Metso/OEM affiliation or
-production deployment. It contains no real customer information or employer code. No licence grant has
-been selected; all rights are reserved pending Enamul's choice.
+![Fault overview](docs/evidence/overview-wide.jpg)
 
-## Run locally
+All vehicles, customers, telemetry, locations, workshop procedures, parts and outcomes are fictional. This
+is an independent portfolio demonstration, with no Metso/OEM affiliation or real customer integration.
+No paid API is needed. No open-source licence grant has been selected.
 
-Use Python **3.12**. A clean clone needs no API key, private file, training job or external database.
+## Install and launch
 
 ```bash
 git clone https://github.com/Enamul22/FleetCare-PredictiveMaintenance.git
@@ -28,126 +23,151 @@ pip install -r requirements.lock.txt
 streamlit run app.py
 ```
 
-`requirements.txt` contains pinned direct dependencies for Streamlit Community Cloud; the tested
-transitive environment is pinned in `requirements.lock.txt`. The entry point is **`app.py` at repository
-root**. The bundled data and coefficients are loaded immediately; full generation never runs on startup.
+The clean-clone path uses prepared results and frozen baseline coefficients. It does **not** generate,
+train or detect the whole fleet on startup. Pinned direct dependencies are in requirements.txt; the tested
+transitive environment is in requirements.lock.txt. Public version/name were not changed for this update.
 
-Default mode gives each visitor an isolated, temporary SQLite database. Reset demo clears that visitor's
-operational history; browser-session loss may also discard it. For single-operator local persistence:
+## Sign in and review the workflow
+
+Local synthetic demo credentials are intentionally public:
+
+| Account | Email | Password |
+|---|---|---|
+| Administrator | `admin@fleetcare.example` | `fleetcare-admin-demo` |
+| Example customer | `customer0000@fleetcare.example` | `fleetcare-customer-demo` |
+| Any assigned synthetic customer | `customerXXXX@fleetcare.example`, using its four-digit customer ID | `fleetcare-customer-demo` |
+
+These are fictional demonstration accounts, not Enamul's real credentials. Use private account
+configuration before restricting a hosted review; see [deployment and authentication](docs/DEPLOYMENT.md).
+
+1. Sign in as administrator. **Fault overview** immediately shows the complete 70-episode result from
+   1,000 vehicles, 1,931,280 detailed observations, October–December 2025. Counts are measured, not a target.
+   Search/filter/sort, move between pages, or download all filtered joined rows. There is no hidden row cap.
+2. Select a table row. Review its actual supporting sensor observations, healthy expected baseline,
+   warning/critical boundaries, abnormal start and first persistence confirmation. Review the nested
+   **Recommended actions** and **Parts list** tabs. Candidates do not prove a unique cause.
+3. Choose **Create work order**. Detection alone creates no export request or order. The selected order
+   saves its customer assignment, recommendation, parts, policy and baseline snapshot. Repeated creation
+   returns the same ID. Failure is recorded as Failed, with a safe retry; other faults remain uncreated.
+4. Open a second browser tab and sign in as that assigned customer. The fault detail shows its demo email.
+   For example, the newest prepared fault belongs to `CUS-0085` / `customer0085@fleetcare.example`.
+   **Work order overview** defaults to Open and shows only that account's orders. Refresh saved changes
+   requeries shared state without restarting. Another customer cannot access the order or its evidence.
+5. Select the order. Read its exported actions/parts. Choose **Completed** or **Rejected**. Completed
+   retains technical finding, optional confirmed cause (Unknown allowed), actual action/compatible parts,
+   reported resolution, optional rating and notes. Rejected requires a reason and omits work-performed
+   fields. There is one final submit; no Assign/Start, inventory/reservation, ERP receipt or replay steps.
+6. Refresh the administrator's fault view. The same fault row/detail shows the exact customer response.
+   Completed/Rejected orders remain readable in history. Completed with **Not resolved** is valid and
+   does not change sensor-derived fault status. Notes, including the word “partial”, have no simulation effect.
+
+An empty customer account is a valid state: orders appear only after explicit creation for that account.
+Back from a fault preserves filters and page position. Optional response columns and filtered CSV include
+technical feedback, timestamps, rating and rejection reason; null feedback is empty, never a zero rating.
+
+## Shared saved state and authorization
+
+The default is shared SQLite at `fleetcare.sqlite`, with WAL, transactional writes, opaque expiring
+sign-in sessions, service-enforced roles/ownership, and unique order/response keys. Admin and customer
+sessions see each other's saved workflow changes through fresh queries. Local records survive restart.
+Only a customer's assigned orders and linked evidence are available to their authenticated session;
+passing another ID or an editable role assertion does not grant access.
 
 ```bash
-FLEETCARE_MODE=local FLEETCARE_DB=./fleetcare.sqlite streamlit run app.py
+FLEETCARE_DB=/absolute/path/fleetcare-review.sqlite streamlit run app.py
 ```
 
-Local records survive app/process restarts. Public hosted mode must remain `session`: hosted filesystem
-writes are not promised durable, private across visitors, or suitable as a shared multiuser backend. No
-external durable store is implemented. Its adapter/authentication/transaction design is a future extension.
+The two workspaces share a configured store; there is no per-browser seed/reset database. Reset/reseed is
+an explicit offline development action, never a customer control. Existing legacy tables/audit are preserved
+by an additive migration. Legacy assigned/in_progress map to Open; completed maps to Completed; cancelled
+maps to Rejected with its original legacy state retained. Missing customer decisions/end times are not invented.
+Legacy technical feedback remains separately readable by administrators.
 
-## Guided demonstration
+This is a modest **single-instance synthetic demonstration**, not production identity management or a
+production multiuser service. Demo passwords are public by design. Hosted local files can be lost on sleep,
+restart or redeployment and cannot coordinate separate replicas. Reliable hosted durability requires a future
+external store configuration/implementation; no external durable backend or OIDC integration is claimed.
 
-1. **Fleet overview:** filter model, country, month and severity. Hours derive from the selected monthly
-   usage dataset. Incident counts derive from the currently replayed state, not estimated fleet prevalence.
-2. **Asset investigation → Guided replay:** choose FC-01 and advance by 60 minutes. Startup readings
-   are excluded. Inspect measured sensor, healthy expected baseline, warning boundary and incident marker.
-3. **Incidents & work orders:** the mock order is exported automatically. Assign it, then start work.
-   Inspect compatible candidates and the delivery/retry history.
-4. **Technician feedback:** choose component_deterioration, OIL-COOLER, replace, and the one compatible
-   `PART-BIR-OIL-COOLER-01`. Report the outcome and submit. Actual parts are reserved then consumed;
-   unrelated candidates remain unconsumed. Completion leaves sensor verification pending.
-5. Return to the same replay, choose a 60-minute advance, and inspect recovered evidence and resolution.
-   Audit keeps the feedback report distinct from subsequent sensor verification.
-6. Reset and try **FC-02** for its staged Alder thermostat stockout. Reserve it to see waiting_for_parts;
-   receive a fictional ERP delivery, reserve again, then complete the thermostat action.
-7. Reset and submit **inspect_only** with no parts for FC-01. Subsequent readings remain abnormal.
-   A wrong-cause replacement also has no mechanical effect; `partial` in notes selects a labelled partial
-   synthetic repair setting. Correct/partial/ineffective effects are explicitly simulated, not learned.
-8. Try sensor_quality, missing_data, healthy_high_load and multi_fault. Enable simulated export
-   interruption, advance a fault, then retry exports. Repeated input, reservation, feedback and export
-   keys cannot duplicate incidents/orders/consumption. Critical escalation keeps the same work order.
+## Complete detection dataset and reproducibility
 
-A late repair extends the verification horizon by two operating hours. Future readings remain hidden
-until replay advances. Fleet history mode explores daily usage/condition and service history for every
-asset and all twelve months; detailed sensor history is limited to the labelled curated windows.
+The offline pipeline processed every configured vehicle's full Q4 detailed telemetry. It produced **70**
+unique episodes, with no sampling/truncation. The current gradual-degradation source has no simulated
+maintenance resets, so its 70 episodes are Active or Unknown; Ended/recurrence handling is verified against
+separate sensor-evidence fixtures rather than fabricating extra fleet rows.
 
-## Data and reproducibility
-
-The compact package contains all 1,000 asset records, 365,000 daily usage/condition records, 12,000 derived
-monthly usage records, 1,000 prior service events, 64 parts and nine 5-minute replay windows (387 samples).
-Full fleet detail is **not bundled**. Manifest records counts, coverage, simulator seed/version and hashes.
-Future daily counters and overlapping telemetry statistics use the same operating clock.
+The package includes all 1,000 assets, 365,000 daily summaries, 12,000 derived monthly usage summaries,
+1,000 prior service records, 64 fictional part variants, all 70 fault rows, and the Q4 observations for every
+vehicle with a fault. The entire raw fleet telemetry is generated separately, not committed. Every fault's
+support is retrievable; manifests list counts, coverage, source partition hashes and packaged checksums.
 
 ```bash
-# CLI modules: set source path without requiring a development install.
 export PYTHONPATH=src
-# Rebuild compact prepared tables (overwrites data/demo; leaves operational SQLite state untouched).
-python -m fleetcare.simulation
-# Full 1,000-vehicle Oct–Dec telemetry, per-vehicle partitions; never run this on Streamlit startup.
-python -m fleetcare.simulation --full --output data/full
-# Small full-path smoke run, useful before the large job.
-python -m fleetcare.simulation --full --vehicles 12 --output /tmp/fleetcare-small
-# Fit development baseline and evaluate fixed policies on held-out vehicles/configurations.
+# Full fleet source generation; may take several minutes, never run on app startup.
+python -m fleetcare.simulation --full --output data/full/update
+# Materialize the complete result and supporting observations.
+python -m fleetcare.pipeline --source data/full/update --output data/demo
+# Separate held-out evaluation; uses frozen regression and development-only challenger fitting.
 python -m fleetcare.evaluation
+# Isolated temporary-store admin/customer acceptance run.
 python -m fleetcare.verify
 pytest -q
 ruff check .
 ruff format --check .
 ```
 
-Generation is deterministic for the recorded seed. Healthy development observations train regression;
-hidden capacity losses and future failure labels are kept offline. Rule inference reads observed context
-and persisted coefficients only. Interactive repairs branch future sensor observations from the action
-point without changing lifetime vehicle hours or the immutable offline evaluation.
+Interval support now uses consecutive engine-on timestamp intervals no longer than ten minutes, with
+no extrapolation after a terminal sample. Daily and detailed counters share exact day boundaries.
+Batch detection uses bounded temporal windows, not a per-observation reload of the full history.
+Country weather still follows the same fictional seasonal formula; January–September condition summaries
+remain independent approximations. Q4 daily values derive from detailed telemetry. These limitations are
+explicit; no monthly health or peer scoring is implemented.
 
-## Measured held-out results
+## Measured evaluation
 
-160 held-out vehicles, 50 injected events, 653.333 operating hours; curated replays excluded.
-Policies were fixed before evaluation. Timing precision is limited by 5-minute sampling.
+A newly reserved test cohort (160 vehicles, seed 20261024) contains **61 labelled events** over
+**633.333 supported operating hours**. Event matching has stable IDs, explicit onset/end windows,
+independent recurrences and separate duplicate/early/late alert accounting. Hash-seed reproducibility
+is tested across separate Python processes. Thresholds and the healthy baseline were not tuned on this test.
 
-| Method | Event recall | False incidents / 100 h | Median delay |
-|---|---:|---:|---:|
-| Contextual temporal rules | 41/50 (82%) | 0.00 (0 incidents) | 10 min |
-| Isolation Forest, generic anomalies | 28/50 (56%) | 1.22 (8 incidents) | 62.5 min |
-| Simple raw limits | 39/50 (78%) | 1.38 (9 incidents) | 10 min |
+| Method | Event recall | False incidents | Median delay | Duplicate alerts |
+|---|---:|---:|---:|---:|
+| Contextual temporal rules | 53/61 (86.9%) | 0 | 45 min | 0 |
+| Isolation Forest, generic anomalies | 27/61 (44.3%) | 6 | 45 min | 3 |
+| Simple raw limits | 51/61 (83.6%) | 7 | 35 min | 17 |
 
-Rules' recall 95% Wilson interval is 69.2–90.2%. Zero observed false incidents over this exposure does
-not prove a zero rate (approximate one-sided upper bound 0.46 per 100 hours). Rules missed nine events.
-**Pre-failure warnings: 0/4 eligible later-failure events**; no positive lead-time claim is supported.
-Isolation Forest remains an offline challenger; generic anomaly flags do not diagnose a fault.
-See [testing/evaluation report](docs/TESTING.md) and [machine-readable results](evaluation/report.json)
-for family denominators, uncertainty, matching rules and synthetic limitations.
+Rules warned before the separately defined later failure onset in **3/3 supported synthetic events**
+(median lead 45 minutes). Three events cannot establish real-world advance prediction. Zero observed
+false incidents also does not prove a zero population rate. See [evaluation report](docs/TESTING.md) for
+family denominators, uncertainty, exposure definitions and misses. Isolation Forest remains offline.
+Historical results from commit bbcab56 are retained under evaluation/historical and are not directly
+comparable with the corrected/new test cohort.
 
-## Architecture and documentation
+## Architecture and further documentation
 
 ```mermaid
 flowchart LR
-  CRM[Mock CRM] --> Canonical[Canonical assets]
-  ERP[Mock ERP parts] --> Service[Transactional SQLite services]
-  Canonical --> Detect[Observed telemetry + frozen baseline + temporal policies]
-  Detect --> Outbox[Incident + outbox]
-  Outbox --> Service
-  Service --> Order[Mock work order]
-  Order --> Feedback[Finding / action / parts]
-  Feedback --> Branch[Simulation branch]
-  Branch --> Detect
-  Service --> Audit[Audit + five Streamlit views]
+  Full[Full synthetic telemetry] --> Pipeline[Offline baseline + temporal episode detection]
+  Pipeline --> Faults[Complete prepared fault result and supporting observations]
+  Faults --> Admin[Admin: Fault overview]
+  Admin -->|Create work order| Store[Shared SQLite + snapshots + audit]
+  Store --> Customer[Assigned customer: Work order overview]
+  Customer -->|Completed / Rejected + technical feedback| Store
+  Store --> Joined[One joined row per fault]
+  Joined --> Admin
 ```
 
-- [Architecture and domain relationships](docs/ARCHITECTURE.md)
-- [Data dictionary and future contracts](docs/DATA_DICTIONARY.md)
-- [Simulator/dataset card](docs/DATASET_CARD.md) · [Detector/model card](docs/MODEL_CARD.md)
-- [Five fictional playbooks](docs/PLAYBOOKS.md) · [Versioned config snapshots](config/)
-- [Testing and evaluation](docs/TESTING.md) · [Progress/check ledger](docs/PROGRESS.md)
-- [Deployment checklist](docs/DEPLOYMENT.md) · [Review screenshots](docs/evidence/)
+- [Architecture and migration](docs/ARCHITECTURE.md) · [Data dictionary](docs/DATA_DICTIONARY.md)
+- [Dataset/simulator card](docs/DATASET_CARD.md) · [Detector/model card](docs/MODEL_CARD.md)
+- [Five playbooks](docs/PLAYBOOKS.md) · [Tests and evaluation](docs/TESTING.md)
+- [Updated review screenshots](docs/evidence/README.md) · [Progress record](docs/PROGRESS.md)
+- [Manual deployment/authentication checklist](docs/DEPLOYMENT.md)
 
-Implemented: FleetCare's five fault policies/playbooks, canonical mock sources, elapsed-time detection,
-transactional export/retry, compatibility/stock accounting, feedback/repair replay, audit, usage history
-and evaluation. **ServicePlan** scheduling and **FleetPulse** condition/peer scoring remain future apps.
-Their validated schemas and shared histories are prepared; no overall health scores, peer ranks,
-scheduling engine or four-month health-score chart is claimed here.
+ServicePlan scheduling and FleetPulse scoring remain future projects. Shared schemas/histories are
+preserved; no scheduler, overall condition score, peer percentile engine or portfolio website is included.
 
-## Manual Streamlit deployment after review
+## Manual deployment after review
 
-Sign in to Streamlit Community Cloud using **Enamul22**. Select this repository, `main`, and `app.py`.
-Choose Python 3.12 in advanced settings and keep the default session storage mode. No secrets are needed.
-Review the checklist and verify the guided repair flow in a fresh visitor session. Deployment is deliberately
-left to Enamul; no live application URL exists as part of this delivery.
+Nothing was deployed. After review, sign in to Streamlit using **Enamul22**, select this repository,
+`main`, `app.py`, and Python 3.12. Configure private review identities and the shared storage path as needed.
+No paid APIs or real customer accounts are required. Follow the deployment checklist and understand the
+hosted filesystem/durability limitations before making it available to visitors.

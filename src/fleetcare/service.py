@@ -1,545 +1,610 @@
-"""SQLite operations, transactional outbox, lifecycle and interactive simulation branches."""
+"""Shared SQLite services: additive migration, explicit exports, tenant authorization and atomic responses."""
 
-import json
-import sqlite3
 import hashlib
-from datetime import datetime, timezone
+import json
+import os
+import secrets
+import sqlite3
 from contextlib import contextmanager
-import uuid
+from pathlib import Path
 import pandas as pd
-from .config import FAULTS, POLICY, BASELINE, FAMILIES, SETTINGS
-from .detection import classify, Baseline
-from .ingestion import Sources, candidates
-from .simulation import observe
+from .config import DATA, FAULTS, TASKS, POLICY
+from .auth import UserConfig, hash_password, verify_password
+from .detection import Baseline
 
-DDL = """
-create table if not exists incidents(id text primary key, vehicle_id text, code text, component_id text,
- severity text, state text, started text, last_seen text, recurrence_of text, evidence text,
- policy_version text, baseline_version text, playbook_version text, notification text);
-create unique index if not exists one_active on incidents(vehicle_id,code,component_id) where state!='resolved';
-create table if not exists outbox(id text primary key, incident_id text unique, attempts integer default 0,
- state text default 'pending', error text);
-create table if not exists orders(id text primary key, incident_id text unique, state text,
- operational_status text, created_at text);
-create table if not exists inventory(sku text primary key, available integer, reserved integer default 0, consumed integer default 0);
-create table if not exists lines(order_id text, sku text, recommended integer default 1, reserved integer default 0,
- consumed integer default 0, returned integer default 0, unavailable integer default 0, primary key(order_id,sku));
-create table if not exists feedback(id text primary key,order_id text,role text,finding text,cause text,
- action text,parts text,completed_at text,outcome text,notes text,effect real);
-create table if not exists components(id text primary key,vehicle_id text,code text,installed_at text,replaced_at text);
-create table if not exists observations(vehicle_id text,timestamp text,payload text,primary key(vehicle_id,timestamp));
-create table if not exists deliveries(id text primary key,sku text,quantity integer);
-create table if not exists processed(vehicle_id text,timestamp text,primary key(vehicle_id,timestamp));
-create table if not exists replay(scenario text primary key,cursor integer,branch text);
-create table if not exists audit(id integer primary key,at text,kind text,entity_id text,detail text);
-create table if not exists quality(vehicle_id text primary key,status text,at text);
+
+class ConflictError(ValueError):
+    """A different final response already exists; it must not be silently overwritten."""
+
+
+SCHEMA = """
+create table if not exists store_meta(key text primary key,value text);
+create table if not exists customers(customer_id text primary key,customer_name text);
+create table if not exists vehicles(vehicle_id text primary key,customer_id text references customers,
+ model_id text,country text,city text);
+create table if not exists users(user_id text primary key,email text unique,display_name text,
+ role text check(role in ('admin','customer')),customer_id text references customers,password_hash text,enabled integer default 1);
+create table if not exists sessions(token_hash text primary key,user_id text references users,expires_at text);
+create table if not exists login_attempts(email text primary key,failures integer,last_at text);
+create table if not exists faults(fault_id text primary key,vehicle_id text references vehicles,code text,fault_name text,
+ component_id text,severity text,started_at text,confirmed_at text,ended_at text,recovery_confirmed_at text,
+ last_detection_at text,last_observed_at text,fault_status text,sensor_verification text,
+ policy_version text,baseline_version text,detection_version text,evidence text,support_file text,run_id text,legacy_state text);
+create table if not exists export_requests(fault_id text primary key references faults,state text,
+ attempts integer default 0,error text,snapshot text,customer_id text,requested_by text,requested_at text);
+create table if not exists work_orders(order_id text primary key,fault_id text unique references faults,
+ customer_id text references customers,status text check(status in ('Open','Completed','Rejected')),
+ created_at text,created_by text,snapshot text,legacy_state text);
+create table if not exists work_order_responses(response_id text primary key,order_id text unique references work_orders,
+ user_id text,decision text check(decision in ('Completed','Rejected')),finding text,confirmed_cause text,
+ action text,actual_parts text,reported_resolution text,rating integer check(rating between 1 and 5),notes text,
+ rejection_reason text,response_at text,submitted_at text,payload text);
+create table if not exists audit(id integer primary key,at text,kind text,entity_id text,detail text,actor text);
+create view if not exists fault_reporting as
+select f.*,v.customer_id,c.customer_name,v.model_id,v.country,v.city,
+ coalesce(x.state,'Not created') creation_status,w.order_id,w.status order_status,w.created_at order_created_at,
+ r.decision response_decision,r.finding,r.confirmed_cause,r.action,r.actual_parts,r.reported_resolution,
+ r.rating,r.notes,r.rejection_reason,r.response_at,r.submitted_at
+from faults f left join vehicles v on f.vehicle_id=v.vehicle_id
+left join customers c on v.customer_id=c.customer_id
+left join export_requests x on f.fault_id=x.fault_id
+left join work_orders w on f.fault_id=w.fault_id
+left join work_order_responses r on w.order_id=r.order_id;
 """
 
 
+def now():
+    return pd.Timestamp.now(tz="UTC").isoformat()
+
+
 class Service:
-    def __init__(self, path=":memory:"):
-        self.db = sqlite3.connect(str(path), check_same_thread=False, isolation_level=None)
+    def __init__(self, path=None, data=DATA, auth_config=None):
+        self.data = Path(data)
+        self.path = str(path or os.environ.get("FLEETCARE_DB", str(DATA.parents[1] / "fleetcare.sqlite")))
+        if self.path != ":memory:":
+            Path(self.path).parent.mkdir(parents=True, exist_ok=True)
+        self.db = sqlite3.connect(self.path, timeout=30, check_same_thread=False, isolation_level=None)
         self.db.row_factory = sqlite3.Row
-        self.db.execute("pragma foreign_keys=ON")
-        self.db.executescript(DDL)
-        self.baseline = Baseline()
+        self.db.execute("pragma foreign_keys=on")
+        self.db.execute("pragma journal_mode=wal")
+        self.db.execute("pragma busy_timeout=30000")
+        # CREATE statements do not rename/drop legacy tables; all their rows remain untouched.
+        self.db.executescript(SCHEMA)
         with self.atomic():
-            for p in Sources().erp().itertuples():
-                self.db.execute(
-                    "insert or ignore into inventory(sku,available) values (?,?)", (p.sku, p.stock)
-                )
+            columns = {r[1] for r in self.db.execute("pragma table_info(audit)")}
+            if "actor" not in columns:
+                self.db.execute("alter table audit add column actor text")
+        self.seed_reference()
+        self.migrate_legacy()
+        config = auth_config
+        if config is None and os.environ.get("FLEETCARE_AUTH_FILE"):
+            config = json.loads(Path(os.environ["FLEETCARE_AUTH_FILE"]).read_text())
+        self.configure_users(config)
 
     @contextmanager
     def atomic(self):
-        name = "sp_" + uuid.uuid4().hex
-        self.db.execute(f"savepoint {name}")
+        self.db.execute("begin immediate")
         try:
             yield
-            self.db.execute(f"release savepoint {name}")
+            self.db.execute("commit")
         except Exception:
-            self.db.execute(f"rollback to savepoint {name}")
-            self.db.execute(f"release savepoint {name}")
+            self.db.execute("rollback")
             raise
 
-    def table(self, name):
-        if name not in {
-            "incidents",
-            "outbox",
-            "orders",
-            "inventory",
-            "lines",
-            "feedback",
-            "components",
-            "audit",
-            "quality",
-            "replay",
-            "deliveries",
-        }:
-            raise ValueError("Invalid table")
-        return pd.read_sql_query(f"select * from {name}", self.db)
-
-    def log(self, kind, entity, detail, at=None):
+    def log(self, kind, entity, detail, actor="system"):
         self.db.execute(
-            "insert into audit(at,kind,entity_id,detail) values (?,?,?,?)",
-            (at or datetime.now(timezone.utc).isoformat(), kind, entity, json.dumps(detail, default=str)),
+            "insert into audit(at,kind,entity_id,detail,actor) values (?,?,?,?,?)",
+            (now(), kind, entity, json.dumps(detail, sort_keys=True, default=str), actor),
         )
 
-    def component(self, vehicle, code):
+    def seed_reference(self):
+        manifest = self.data / "faults.parquet"
+        if not manifest.exists():
+            raise ValueError("Prepared complete-fleet faults are missing. Run the offline pipeline first.")
+        digest = hashlib.sha256(manifest.read_bytes()).hexdigest()
+        with self.atomic():
+            current = self.db.execute("select value from store_meta where key='detection_sha256'").fetchone()
+            if current and current[0] == digest:
+                return
+            a = pd.read_parquet(self.data / "assets.parquet")
+            for v in a.itertuples():
+                self.db.execute(
+                    "insert into customers values (?,?) on conflict(customer_id) do update set customer_name=excluded.customer_name",
+                    (v.customer_id, v.customer_name),
+                )
+                self.db.execute(
+                    "insert into vehicles values (?,?,?,?,?) on conflict(vehicle_id) do update set customer_id=excluded.customer_id,model_id=excluded.model_id,country=excluded.country,city=excluded.city",
+                    (v.vehicle_id, v.customer_id, v.model_id, v.country, v.city),
+                )
+            f = pd.read_parquet(manifest)
+            cols = [r[1] for r in self.db.execute("pragma table_info(faults)") if r[1] != "legacy_state"]
+            for row in f.to_dict("records"):
+                values = [None if pd.isna(row.get(k)) else row.get(k) for k in cols]
+                # Preserve immutable order/response snapshots; refresh only evidence-derived fault columns.
+                updates = ",".join(f"{k}=excluded.{k}" for k in cols if k != "fault_id")
+                self.db.execute(
+                    f"insert into faults({','.join(cols)}) values ({','.join('?' for _ in cols)}) on conflict(fault_id) do update set {updates}",
+                    values,
+                )
+            self.db.execute("insert or replace into store_meta values ('detection_sha256',?)", (digest,))
+            self.log("detection_dataset_imported", digest, dict(episodes=len(f)))
+
+    def snapshot(self, fault):
+        parts = pd.read_parquet(self.data / "parts.parquet")
+        parts = parts[
+            (parts.fault_code == fault["code"])
+            & (parts.model_id == fault["model_id"])
+            & (parts.component_type == fault["code"])
+            & (parts.playbook_version == "PB-1.0")
+        ]
+        proposals = [
+            dict(
+                sku=p.sku,
+                name=p.family.replace("-", " ").title(),
+                family=p.family,
+                quantity=int(p.quantity),
+                conditional=True,
+            )
+            for p in parts.itertuples()
+        ]
+        investigation = TASKS[fault["code"]]
+        return dict(
+            playbook_id="PB-" + fault["code"][-2:],
+            playbook_version="PB-1.0",
+            policy_version=POLICY,
+            baseline_version=fault["baseline_version"],
+            baseline_parameters=Baseline(self.data / "baseline.json").parameters,
+            policy=list(FAULTS[fault["code"]]),
+            actions=[
+                f"Review the supporting measurements for {fault['vehicle_id']} ({fault['model_id']}).",
+                investigation,
+                "Confirm the cause before selecting any replacement. Candidates are conditional, not a diagnosis.",
+                "Report the performed action and outcome. Verify the condition from subsequent comparable sensor evidence.",
+            ],
+            parts=proposals,
+            evidence_as_of=fault["last_observed_at"],
+            fault_id=fault["fault_id"],
+        )
+
+    def migrate_legacy(self):
+        with self.atomic():
+            if self.db.execute("select 1 from store_meta where key='schema_r2'").fetchone():
+                return
+            tables = {r[0] for r in self.db.execute("select name from sqlite_master where type='table'")}
+            if "incidents" in tables:
+                for old in self.db.execute("select * from incidents").fetchall():
+                    r = dict(old)
+                    self.db.execute(
+                        "insert or ignore into faults(fault_id,vehicle_id,code,fault_name,component_id,severity,started_at,confirmed_at,last_detection_at,last_observed_at,fault_status,sensor_verification,policy_version,baseline_version,detection_version,evidence,run_id,legacy_state) values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (
+                            r["id"],
+                            r["vehicle_id"],
+                            r["code"],
+                            FAULTS[r["code"]][-1],
+                            r["component_id"],
+                            r["severity"],
+                            r["started"],
+                            r["started"],
+                            r["last_seen"],
+                            r["last_seen"],
+                            "Unknown",
+                            "Legacy resolution recorded; exact end unavailable"
+                            if r["state"] == "resolved"
+                            else "Not observed",
+                            r["policy_version"],
+                            r["baseline_version"],
+                            "legacy-import",
+                            r["evidence"],
+                            "legacy",
+                            r["state"],
+                        ),
+                    )
+                if "orders" in tables:
+                    for old in self.db.execute("select * from orders").fetchall():
+                        r = dict(old)
+                        fault = self.db.execute(
+                            "select * from fault_reporting where fault_id=?", (r["incident_id"],)
+                        ).fetchone()
+                        if not fault:
+                            continue
+                        status = {"completed": "Completed", "cancelled": "Rejected"}.get(r["state"], "Open")
+                        snap = json.dumps(self.snapshot(fault), sort_keys=True)
+                        self.db.execute(
+                            "insert or ignore into work_orders values (?,?,?,?,?,?,?,?)",
+                            (
+                                r["id"],
+                                r["incident_id"],
+                                fault["customer_id"],
+                                status,
+                                r["created_at"],
+                                "legacy-import",
+                                snap,
+                                r["state"],
+                            ),
+                        )
+                        self.db.execute(
+                            "insert or ignore into export_requests values (?,'Created',0,null,?,?,?,?)",
+                            (r["incident_id"], snap, fault["customer_id"], "legacy-import", r["created_at"]),
+                        )
+                # Do not turn legacy report-only/customer notes into final customer decisions.
+                # All original feedback, inventory, component and outbox rows remain in their original tables.
+                self.log(
+                    "legacy_migrated",
+                    "schema-r2",
+                    dict(
+                        original_tables_preserved=sorted(tables),
+                        state_mapping="created/assigned/in_progress -> Open; completed -> Completed; cancelled -> Rejected (legacy cancellation)",
+                        responses="No final customer responses invented; legacy feedback remains separately readable",
+                    ),
+                )
+            self.db.execute("insert into store_meta values ('schema_r2','2')")
+
+    def configure_users(self, config):
+        customers = self.db.execute("select * from customers order by customer_id").fetchall()
+        if config is None:
+            admin_hash = hash_password("fleetcare-admin-demo")
+            customer_hash = hash_password("fleetcare-customer-demo")
+            config = [
+                dict(
+                    user_id="admin",
+                    email="admin@fleetcare.example",
+                    display_name="Demo administrator",
+                    role="admin",
+                    password_hash=admin_hash,
+                )
+            ]
+            config += [
+                dict(
+                    user_id=c["customer_id"],
+                    email=f"customer{c['customer_id'][-4:]}@fleetcare.example",
+                    display_name=c["customer_name"],
+                    role="customer",
+                    customer_id=c["customer_id"],
+                    password_hash=customer_hash,
+                )
+                for c in customers
+            ]
+            self.auth_mode = "public_demo"
+        else:
+            self.auth_mode = "configured"
+        users = [UserConfig.model_validate(v) for v in config]
+        if not any(u.role == "admin" for u in users):
+            raise ValueError("At least one configured administrator is required")
+        with self.atomic():
+            # Disabled accounts cannot retain session access after a private configuration is selected.
+            if self.auth_mode == "configured":
+                self.db.execute("update users set enabled=0")
+            for u in users:
+                if self.auth_mode == "public_demo":
+                    self.db.execute(
+                        "insert or ignore into users values (?,?,?,?,?,?,1)",
+                        (u.user_id, u.email.lower(), u.display_name, u.role, u.customer_id, u.password_hash),
+                    )
+                else:
+                    self.db.execute(
+                        "insert into users values (?,?,?,?,?,?,1) on conflict(user_id) do update set email=excluded.email,display_name=excluded.display_name,role=excluded.role,customer_id=excluded.customer_id,password_hash=excluded.password_hash,enabled=1",
+                        (u.user_id, u.email.lower(), u.display_name, u.role, u.customer_id, u.password_hash),
+                    )
+
+    def login(self, email, password):
+        email = email.strip().lower()
+        with self.atomic():
+            attempt = self.db.execute("select * from login_attempts where email=?", (email,)).fetchone()
+            if (
+                attempt
+                and attempt["failures"] >= 5
+                and (pd.Timestamp(now()) - pd.Timestamp(attempt["last_at"])).total_seconds() < 300
+            ):
+                raise PermissionError("Too many attempts. Try again after five minutes.")
+            user = self.db.execute("select * from users where email=? and enabled=1", (email,)).fetchone()
+            if not user or not verify_password(password, user["password_hash"]):
+                failures = (
+                    (attempt["failures"] + 1)
+                    if attempt
+                    and (pd.Timestamp(now()) - pd.Timestamp(attempt["last_at"])).total_seconds() < 300
+                    else 1
+                )
+                self.db.execute(
+                    "insert or replace into login_attempts values (?,?,?)", (email, failures, now())
+                )
+                token = None
+            else:
+                self.db.execute("delete from login_attempts where email=?", (email,))
+                token = secrets.token_urlsafe(32)
+                self.db.execute(
+                    "insert into sessions values (?,?,?)",
+                    (
+                        hashlib.sha256(token.encode()).hexdigest(),
+                        user["user_id"],
+                        (pd.Timestamp(now()) + pd.Timedelta(hours=8)).isoformat(),
+                    ),
+                )
+                self.log("signed_in", user["user_id"], {}, user["user_id"])
+        if token is None:
+            raise PermissionError("Sign-in failed. Check your email and password.")
+        return token
+
+    def principal(self, token):
+        if not isinstance(token, str):
+            raise PermissionError("Sign in to continue")
         row = self.db.execute(
-            "select id from components where vehicle_id=? and code=? and replaced_at is null", (vehicle, code)
+            "select u.* from users u join sessions s on u.user_id=s.user_id where s.token_hash=? and s.expires_at>? and u.enabled=1",
+            (hashlib.sha256(token.encode()).hexdigest(), now()),
         ).fetchone()
-        if row:
-            return row[0]
-        cid = f"{vehicle}:{code}:original"
+        if not row:
+            raise PermissionError("Sign in to continue")
+        return {k: row[k] for k in ["user_id", "email", "display_name", "role", "customer_id"]}
+
+    def logout(self, token):
         self.db.execute(
-            "insert into components values (?,?,?,?,null)", (cid, vehicle, code, "2025-01-01T00:00:00Z")
+            "delete from sessions where token_hash=?", (hashlib.sha256(token.encode()).hexdigest(),)
         )
-        return cid
 
-    def ingest(self, frame):
-        """All incident/outbox changes commit with the ingestion checkpoint."""
-        if frame.empty:
-            return
-        f = frame.sort_values("timestamp").drop_duplicates(["vehicle_id", "timestamp"])
-        if f.vehicle_id.nunique() != 1:
-            raise ValueError("Ingest one canonical vehicle at a time")
-        duplicates = 0
-        with self.atomic():
-            for pos in range(len(f)):
-                row = f.iloc[pos]
-                v = row.vehicle_id
-                at = row.timestamp.isoformat()
-                if self.db.execute(
-                    "select 1 from processed where vehicle_id=? and timestamp=?", (v, at)
-                ).fetchone():
-                    duplicates += 1
-                    continue
-                latest = self.db.execute(
-                    "select max(timestamp) from processed where vehicle_id=?", (v,)
-                ).fetchone()[0]
-                if latest is not None and at < latest:
-                    raise ValueError("Out-of-order new observations require an explicit offline replay")
-                payload = row.to_dict()
-                payload["timestamp"] = at
-                self.db.execute(
-                    "insert or ignore into observations values (?,?,?)",
-                    (v, at, json.dumps(payload, default=str)),
-                )
-                history = self.db.execute(
-                    "select payload from observations where vehicle_id=? and timestamp<=? order by timestamp",
-                    (v, at),
-                ).fetchall()
-                past = pd.DataFrame([json.loads(h[0]) for h in history])
-                past["timestamp"] = pd.to_datetime(past.timestamp, utc=True)
-                quality = "observed" if row.quality_status == "valid" else "unknown / " + row.quality_status
-                prior_quality = self.db.execute(
-                    "select status from quality where vehicle_id=?", (v,)
-                ).fetchone()
-                if quality != "observed" and (not prior_quality or prior_quality[0] != quality):
-                    self.log("telemetry_quality_incident", v, dict(status=quality, condition="unknown"), at)
-                self.db.execute("insert or replace into quality values (?,?,?)", (v, quality, at))
-                for code in FAULTS:
-                    status, e = classify(past, code, self.baseline)
-                    current = self.db.execute(
-                        "select * from incidents where vehicle_id=? and code=? and state!='resolved'",
-                        (v, code),
-                    ).fetchone()
-                    if status in ("warning", "critical"):
-                        last = e.iloc[-1]
-                        policy = FAULTS[code]
-                        duration = 5 if status == "critical" else policy[4]
-                        window = e[e.timestamp >= row.timestamp - pd.Timedelta(minutes=duration)]
-                        proof = json.dumps(
-                            dict(
-                                sensor=policy[0],
-                                comparison=policy[1],
-                                trigger_severity=status,
-                                threshold=policy[3] if status == "critical" else policy[2],
-                                window_minutes=duration,
-                                cadence_minutes=SETTINGS.cadence_minutes,
-                                valid_samples=int(window.valid.sum()),
-                                expected_samples=duration // SETTINGS.cadence_minutes + 1,
-                                observed=float(last.observed),
-                                expected=float(last.expected),
-                                value=float(last.value),
-                                timestamp=at,
-                            )
-                        )
-                        if current:
-                            severity = (
-                                "critical"
-                                if status == "critical" or current["severity"] == "critical"
-                                else "warning"
-                            )
-                            self.db.execute(
-                                "update incidents set severity=?,state='active',last_seen=?,evidence=?,notification=? where id=?",
-                                (
-                                    severity,
-                                    at,
-                                    proof,
-                                    "notify" if severity == "critical" else current["notification"],
-                                    current["id"],
-                                ),
-                            )
-                            if severity != current["severity"]:
-                                self.log("severity_escalated", current["id"], severity, at)
-                        else:
-                            cid = self.component(v, code)
-                            previous = self.db.execute(
-                                "select id,last_seen from incidents where vehicle_id=? and code=? order by started desc limit 1",
-                                (v, code),
-                            ).fetchone()
-                            iid = hashlib.sha256(f"{v}|{code}|{cid}|{at}".encode()).hexdigest()[:18]
-                            cool = (
-                                previous
-                                and (row.timestamp - pd.Timestamp(previous["last_seen"])).total_seconds()
-                                < SETTINGS.cooldown_minutes * 60
-                            )
-                            notification = (
-                                "cooldown_suppressed" if cool and status != "critical" else "notify"
-                            )
-                            self.db.execute(
-                                "insert into incidents values (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                                (
-                                    iid,
-                                    v,
-                                    code,
-                                    cid,
-                                    status,
-                                    "active",
-                                    at,
-                                    at,
-                                    previous["id"] if previous else None,
-                                    proof,
-                                    POLICY,
-                                    BASELINE,
-                                    "PB-1.0",
-                                    notification,
-                                ),
-                            )
-                            self.db.execute(
-                                "insert into outbox(id,incident_id) values (?,?)", (f"export:{iid}", iid)
-                            )
-                            self.log(
-                                "incident_created",
-                                iid,
-                                dict(code=code, status=status, notification=notification),
-                                at,
-                            )
-                    elif current and status == "recovered":
-                        self.db.execute(
-                            "update incidents set state='resolved',last_seen=? where id=?",
-                            (at, current["id"]),
-                        )
-                        self.db.execute(
-                            "update orders set operational_status='sensor_verified' where incident_id=? and state='completed'",
-                            (current["id"],),
-                        )
-                        self.log("sensor_verified_resolution", current["id"], dict(window_minutes=15), at)
-                    elif current and bool(e.valid.iloc[-1]):
-                        _, kind, _, _, _, threshold, _ = FAULTS[code]
-                        val = e.value.iloc[-1]
-                        improving = val > threshold if kind == "ratio_low" else val < threshold
-                        if improving and current["state"] != "recovering":
-                            self.db.execute(
-                                "update incidents set state='recovering' where id=?", (current["id"],)
-                            )
-                            self.log("recovery_started", current["id"], {}, at)
-                self.db.execute("insert into processed values (?,?)", (v, at))
-            if duplicates:
-                self.log("duplicate_input_suppressed", f.vehicle_id.iloc[0], dict(observations=duplicates))
+    def admin(self, token):
+        user = self.principal(token)
+        if user["role"] != "admin":
+            raise PermissionError("Administrator access required")
+        return user
 
-    def export(self, fail=False):
-        """Mock receiver shares transaction; incident identity is its permanent idempotency key."""
-        for row in self.db.execute("select * from outbox where state!='acknowledged'").fetchall():
-            with self.atomic():
-                self.db.execute("update outbox set attempts=attempts+1 where id=?", (row["id"],))
-                self.log("export_attempt", row["incident_id"], dict(failed=fail))
-                if fail:
-                    self.db.execute(
-                        "update outbox set error='Simulated transport interruption',state='retry' where id=?",
-                        (row["id"],),
-                    )
-                    continue
-                oid = f"WO-{row['incident_id']}"
-                self.db.execute(
-                    "insert or ignore into orders values (?,?,'created','ready',?)",
-                    (oid, row["incident_id"], datetime.now(timezone.utc).isoformat()),
-                )
-                ctx = self.order_context(oid)
-                model = Sources().crm().set_index("vehicle_id").loc[ctx["vehicle_id"], "model_id"]
-                for sku in candidates(ctx["code"], model, ctx["code"]).sku:
-                    self.db.execute(
-                        "insert or ignore into lines(order_id,sku,recommended) values (?,?,1)", (oid, sku)
-                    )
-                self.db.execute("update outbox set state='acknowledged',error=null where id=?", (row["id"],))
-                self.log("export_acknowledged", oid, dict(idempotency_key=row["id"]))
+    def faults(self, token):
+        self.admin(token)
+        return pd.read_sql_query("select * from fault_reporting order by confirmed_at desc,fault_id", self.db)
 
-    def transition(self, order_id, state):
-        allowed = {
-            "created": {"assigned", "cancelled"},
-            "assigned": {"in_progress", "cancelled"},
-            "in_progress": {"cancelled"},
-        }
-        with self.atomic():
-            row = self.db.execute("select state from orders where id=?", (order_id,)).fetchone()
-            if not row or state not in allowed.get(row[0], set()):
-                raise ValueError("Invalid work-order transition; completion requires structured feedback")
-            if state == "cancelled":
-                for line in self.db.execute("select * from lines where order_id=?", (order_id,)).fetchall():
-                    self.db.execute(
-                        "update inventory set available=available+?,reserved=reserved-? where sku=?",
-                        (line["reserved"], line["reserved"], line["sku"]),
-                    )
-                    self.db.execute(
-                        "update lines set returned=returned+reserved,reserved=0 where order_id=? and sku=?",
-                        (order_id, line["sku"]),
-                    )
-            self.db.execute("update orders set state=? where id=?", (state, order_id))
-            self.log("work_order_transition", order_id, state)
+    def fault(self, token, fault_id):
+        self.admin(token)
+        row = self.db.execute("select * from fault_reporting where fault_id=?", (fault_id,)).fetchone()
+        if not row:
+            raise ValueError("Fault not found")
+        return dict(row)
 
-    def order_context(self, order_id):
-        return self.db.execute(
-            "select i.*,o.state order_state from incidents i join orders o on i.id=o.incident_id where o.id=?",
-            (order_id,),
+    def orders(self, token):
+        user = self.principal(token)
+        sql = "select f.* from fault_reporting f join work_orders w on f.order_id=w.order_id"
+        if user["role"] == "customer":
+            return pd.read_sql_query(
+                sql + " where w.customer_id=? order by w.created_at desc",
+                self.db,
+                params=[user["customer_id"]],
+            )
+        return pd.read_sql_query(sql + " order by w.created_at desc", self.db)
+
+    def order(self, token, order_id):
+        user = self.principal(token)
+        row = self.db.execute("select * from work_orders where order_id=?", (order_id,)).fetchone()
+        if not row or user["role"] == "customer" and row["customer_id"] != user["customer_id"]:
+            raise PermissionError("Order unavailable for this account")
+        result = dict(row)
+        result["snapshot"] = json.loads(result["snapshot"])
+        result["fault"] = dict(
+            self.db.execute("select * from fault_reporting where fault_id=?", (row["fault_id"],)).fetchone()
+        )
+        response = self.db.execute(
+            "select * from work_order_responses where order_id=?", (order_id,)
         ).fetchone()
+        result["response"] = dict(response) if response else None
+        return result
 
-    def reserve(self, order_id, sku):
-        with self.atomic():
-            ctx = self.order_context(order_id)
-            if not ctx or ctx["order_state"] in ("completed", "cancelled"):
-                raise ValueError("Order is not open")
-            model = Sources().crm().set_index("vehicle_id").loc[ctx["vehicle_id"], "model_id"]
-            if sku not in set(candidates(ctx["code"], model, ctx["code"]).sku):
-                raise ValueError("Incompatible part")
-            old = self.db.execute(
-                "select reserved,consumed from lines where order_id=? and sku=?", (order_id, sku)
-            ).fetchone()
-            if old and (old[0] or old[1]):
-                return True
-            stock = self.db.execute("select available from inventory where sku=?", (sku,)).fetchone()[0]
-            self.db.execute("insert or ignore into lines(order_id,sku) values (?,?)", (order_id, sku))
-            if stock < 1:
-                self.db.execute("update lines set unavailable=1 where order_id=? and sku=?", (order_id, sku))
-                self.db.execute(
-                    "update orders set operational_status='waiting_for_parts' where id=?", (order_id,)
-                )
-                self.log("stockout", order_id, sku)
-                return False
-            self.db.execute(
-                "update inventory set available=available-1,reserved=reserved+1 where sku=?", (sku,)
-            )
-            self.db.execute(
-                "update lines set reserved=1,unavailable=0 where order_id=? and sku=?", (order_id, sku)
-            )
-            remaining = self.db.execute(
-                "select count(*) from lines where order_id=? and unavailable>0", (order_id,)
-            ).fetchone()[0]
-            if remaining == 0:
-                self.db.execute("update orders set operational_status='ready' where id=?", (order_id,))
-            self.log("part_reserved", order_id, sku)
-            return True
-
-    def receive_delivery(self, delivery_id, sku, quantity=1):
-        if not isinstance(quantity, int) or quantity < 1:
-            raise ValueError("Delivery quantity must be positive integer")
+    def create_order(self, token, fault_id, fail_export=False):
+        user = self.admin(token)
         with self.atomic():
             existing = self.db.execute(
-                "select sku,quantity from deliveries where id=?", (delivery_id,)
+                "select order_id from work_orders where fault_id=?", (fault_id,)
             ).fetchone()
             if existing:
-                if tuple(existing) != (sku, quantity):
-                    raise ValueError("Conflicting delivery idempotency key")
-                return
-            if not self.db.execute("select 1 from inventory where sku=?", (sku,)).fetchone():
-                raise ValueError("Unknown ERP SKU")
-            self.db.execute("insert into deliveries values (?,?,?)", (delivery_id, sku, quantity))
-            self.db.execute("update inventory set available=available+? where sku=?", (quantity, sku))
-            self.log("mock_erp_receipt", delivery_id, dict(sku=sku, quantity=quantity))
-
-    def feedback(
-        self, feedback_id, order_id, role, finding, cause, action, parts, outcome, notes="", at=None
-    ):
-        if role not in ("technician", "customer") or outcome not in ("resolved", "not_resolved", "unknown"):
-            raise ValueError("Invalid feedback role/outcome")
-        with self.atomic():
-            existing = self.db.execute("select * from feedback where id=?", (feedback_id,)).fetchone()
-            if existing:
-                if (
-                    existing["order_id"] != order_id
-                    or existing["action"] != action
-                    or existing["cause"] != cause
-                    or json.loads(existing["parts"]) != parts
-                ):
-                    raise ValueError("Idempotency key belongs to another order")
-                return existing["effect"]
-            ctx = self.order_context(order_id)
-            if not ctx:
-                raise ValueError("Unknown work order")
-            if role == "technician" and ctx["order_state"] != "in_progress":
-                raise ValueError("Technician completion requires in_progress order")
-            if role == "customer" and (parts or action != "report_only"):
-                raise ValueError("Customer reports cannot perform workshop actions")
-            if action not in ("replace", "inspect_only", "connection_repair", "report_only"):
-                raise ValueError("Unknown action")
-            if action == "replace" and not parts:
-                raise ValueError("Replacement requires a compatible part")
-            if parts and action != "replace":
-                raise ValueError("Actual replacement parts require replacement action")
-            if any(q != 1 for q in parts.values()):
-                raise ValueError("Demo bundles use quantity one")
-            model = Sources().crm().set_index("vehicle_id").loc[ctx["vehicle_id"], "model_id"]
-            valid = set(candidates(ctx["code"], model, ctx["code"]).sku)
-            for sku in parts:
-                if cause == "unknown" or f"-{cause}-01" not in sku:
-                    raise ValueError("Actual parts must support the confirmed finding")
-                line = self.db.execute(
-                    "select reserved from lines where order_id=? and sku=?", (order_id, sku)
-                ).fetchone()
-                if sku not in valid or not line or line[0] < 1:
-                    raise ValueError("Parts must be compatible, available and reserved before consumption")
-            # Scenario engine's recorded efficacy; inference never reads this state.
-            correct = cause == FAMILIES[ctx["code"]][0] and (
-                any(f"-{cause}-01" in sku for sku in parts)
-                or action == "connection_repair"
-                and cause == "CONNECTION-KIT"
-            )
-            effect = 1.0 if correct and action in ("replace", "connection_repair") else 0.0
-            if "partial" in notes.lower() and correct:
-                effect = 0.45
-            if at is None:
-                for state in self.db.execute("select * from replay").fetchall():
-                    original = Sources().telemetry(state["scenario"])
-                    if len(original) and original.vehicle_id.iloc[0] == ctx["vehicle_id"]:
-                        at = (
-                            original.timestamp.iloc[0] + pd.Timedelta(minutes=state["cursor"] * 5)
-                        ).isoformat()
-                        break
-            at = at or datetime.now(timezone.utc).isoformat()
-            event_time = pd.Timestamp(at)
-            if event_time.tzinfo is None or event_time < pd.Timestamp(ctx["started"]):
-                raise ValueError("Completion timestamp must be timezone-aware and after incident onset")
-            at = event_time.tz_convert("UTC").isoformat()
+                return dict(ok=True, order_id=existing[0], status="Created")
+            fault = self.fault(token, fault_id)
+            request = self.db.execute(
+                "select * from export_requests where fault_id=?", (fault_id,)
+            ).fetchone()
+            if not request:
+                snap = json.dumps(self.snapshot(fault), sort_keys=True)
+                self.db.execute(
+                    "insert into export_requests values (?,'Pending',0,null,?,?,?,?)",
+                    (fault_id, snap, fault["customer_id"], user["user_id"], now()),
+                )
             self.db.execute(
-                "insert into feedback values (?,?,?,?,?,?,?,?,?,?,?)",
+                "update export_requests set attempts=attempts+1,state='Pending',error=null where fault_id=?",
+                (fault_id,),
+            )
+            self.log("export_attempt", fault_id, {}, user["user_id"])
+            if fail_export:
+                self.db.execute(
+                    "update export_requests set state='Failed',error='Mock service temporarily unavailable' where fault_id=?",
+                    (fault_id,),
+                )
+                self.log("export_failed", fault_id, {}, user["user_id"])
+                return dict(
+                    ok=False,
+                    order_id=None,
+                    status="Failed",
+                    error="Mock service temporarily unavailable. Retry this fault.",
+                )
+            request = self.db.execute(
+                "select * from export_requests where fault_id=?", (fault_id,)
+            ).fetchone()
+            oid = "WO-" + hashlib.sha256(fault_id.encode()).hexdigest()[:16].upper()
+            self.db.execute(
+                "insert into work_orders values (?,?,?,'Open',?,?,?,null)",
+                (oid, fault_id, request["customer_id"], now(), user["user_id"], request["snapshot"]),
+            )
+            self.db.execute(
+                "update export_requests set state='Created',error=null where fault_id=?", (fault_id,)
+            )
+            self.log(
+                "work_order_created",
+                oid,
+                dict(fault_id=fault_id, customer_id=request["customer_id"]),
+                user["user_id"],
+            )
+            return dict(ok=True, order_id=oid, status="Created")
+
+    def evidence(self, token, fault_id, order_id=None):
+        user = self.principal(token)
+        if user["role"] == "admin":
+            fault = self.fault(token, fault_id)
+        else:
+            if not order_id:
+                raise PermissionError("An assigned order is required")
+            order = self.order(token, order_id)
+            if order["fault_id"] != fault_id:
+                raise PermissionError("Evidence does not belong to this order")
+            fault = order["fault"]
+        if fault["support_file"]:
+            path = (self.data / fault["support_file"]).resolve()
+            if not path.is_relative_to(self.data.resolve()):
+                raise PermissionError("Invalid evidence path")
+            frame = pd.read_parquet(path)
+        else:
+            tables = {r[0] for r in self.db.execute("select name from sqlite_master where type='table'")}
+            if "observations" not in tables:
+                return pd.DataFrame()
+            records = self.db.execute(
+                "select payload from observations where vehicle_id=? order by timestamp",
+                (fault["vehicle_id"],),
+            ).fetchall()
+            frame = pd.DataFrame([json.loads(r[0]) for r in records])
+            if frame.empty:
+                return frame
+            frame.timestamp = pd.to_datetime(frame.timestamp, utc=True)
+        start = pd.Timestamp(fault["started_at"]) - pd.Timedelta(minutes=30)
+        end = pd.Timestamp(fault["recovery_confirmed_at"] or fault["last_observed_at"]) + pd.Timedelta(
+            minutes=30
+        )
+        return frame[(frame.timestamp >= start) & (frame.timestamp <= end)].copy().reset_index(drop=True)
+
+    def respond(self, token, order_id, payload):
+        user = self.principal(token)
+        if user["role"] != "customer":
+            raise PermissionError("Only the assigned signed-in customer can submit a response")
+        order = self.order(token, order_id)
+        data = self.validate_response(order, payload)
+        encoded = json.dumps(data, sort_keys=True, separators=(",", ":"))
+        with self.atomic():
+            # Recheck ownership and terminal state inside the write transaction.
+            order = self.order(token, order_id)
+            prior = self.db.execute(
+                "select * from work_order_responses where order_id=?", (order_id,)
+            ).fetchone()
+            if prior:
+                if prior["payload"] == encoded:
+                    return prior["response_id"]
+                raise ConflictError(
+                    "This order already has a different final response. Refresh to review it."
+                )
+            if order["status"] != "Open":
+                raise ConflictError("This legacy/terminal order is read-only; no response may be invented.")
+            rid = "RESP-" + hashlib.sha256(order_id.encode()).hexdigest()[:16]
+            self.db.execute(
+                "insert into work_order_responses values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
-                    feedback_id,
+                    rid,
                     order_id,
-                    role,
-                    finding,
-                    cause,
-                    action,
-                    json.dumps(parts),
-                    at,
-                    outcome,
-                    notes,
-                    effect,
+                    user["user_id"],
+                    data["decision"],
+                    data["finding"],
+                    data["confirmed_cause"],
+                    data["action"],
+                    json.dumps(data["actual_parts"], sort_keys=True)
+                    if data["actual_parts"] is not None
+                    else None,
+                    data["reported_resolution"],
+                    data["rating"],
+                    data["notes"],
+                    data["rejection_reason"],
+                    data["response_at"],
+                    now(),
+                    encoded,
                 ),
             )
-            if role == "customer":
-                self.log("customer_report", feedback_id, dict(outcome=outcome), at)
-                return effect
-            for line in self.db.execute("select * from lines where order_id=?", (order_id,)).fetchall():
-                used = parts.get(line["sku"], 0)
-                returned = line["reserved"] - used
-                self.db.execute(
-                    "update inventory set reserved=reserved-?,consumed=consumed+?,available=available+? where sku=?",
-                    (line["reserved"], used, returned, line["sku"]),
-                )
-                self.db.execute(
-                    "update lines set consumed=consumed+?,returned=returned+?,reserved=0 where order_id=? and sku=?",
-                    (used, returned, order_id, line["sku"]),
-                )
-            self.db.execute(
-                "update orders set state='completed',operational_status='verification_pending' where id=?",
-                (order_id,),
-            )
-            if action == "replace":
-                old = self.component(ctx["vehicle_id"], ctx["code"])
-                self.db.execute("update components set replaced_at=? where id=?", (at, old))
-                self.db.execute(
-                    "insert into components values (?,?,?,?,null)",
-                    (f"{old}:{feedback_id}", ctx["vehicle_id"], ctx["code"], at),
-                )
-            self.log(
-                "feedback_completed",
-                feedback_id,
-                dict(effect=effect, outcome=outcome, sensor_verification="pending"),
-                at,
-            )
-            # Persist branch at actual replay cursor, so later observations depend on the selected action.
-            for state in self.db.execute("select * from replay").fetchall():
-                original = Sources().telemetry(state["scenario"])
-                if not original.empty and original.vehicle_id.iloc[0] == ctx["vehicle_id"]:
-                    branch = json.loads(state["branch"])
-                    branch[ctx["code"]] = dict(effect=effect, at=state["cursor"], feedback_id=feedback_id)
-                    self.db.execute(
-                        "update replay set branch=? where scenario=?", (json.dumps(branch), state["scenario"])
-                    )
-            return effect
+            self.db.execute("update work_orders set status=? where order_id=?", (data["decision"], order_id))
+            self.log("customer_response_saved", order_id, data, user["user_id"])
+            return rid
 
-    def replay_frame(self, scenario):
-        f = Sources().telemetry(scenario)
-        row = self.db.execute("select * from replay where scenario=?", (scenario,)).fetchone()
-        if row:
-            branch = json.loads(row["branch"])
-            # A late repair receives an additional two-hour verification horizon.
-            if branch:
-                horizon = max(max(int(b["at"]) for b in branch.values()) + 25, len(f))
-                if horizon > len(f):
-                    vehicle = Sources().crm().set_index("vehicle_id").loc[f.vehicle_id.iloc[0]].to_dict()
-                    vehicle["vehicle_id"] = f.vehicle_id.iloc[0]
-                    timestamps = pd.date_range(f.timestamp.iloc[0], periods=horizon, freq="5min")
-                    codes = ["FC-01", "FC-04"] if scenario == "multi_fault" else [scenario]
-                    extra = observe(vehicle, timestamps, 44, {c: 0.82 for c in codes})
-                    extra["scenario"] = scenario
-                    extra = extra.iloc[len(f) :].copy()
-                    previous = f.iloc[-1]
-                    extra["odometer_km"] = (
-                        float(previous.odometer_km) + (extra.vehicle_speed_kmh / 12).cumsum()
-                    )
-                    extra["lifetime_engine_hours"] = float(previous.lifetime_engine_hours) + (
-                        pd.Series(range(1, len(extra) + 1), index=extra.index) / 12
-                    )
-                    f = pd.concat([f, extra], ignore_index=True)
-            for code, b in branch.items():
-                index = int(b["at"])
-                if index >= len(f):
-                    continue
-                vehicle = Sources().crm().set_index("vehicle_id").loc[f.vehicle_id.iloc[0]].to_dict()
-                vehicle["vehicle_id"] = f.vehicle_id.iloc[0]
-                conditions = {}
-                codes = ["FC-01", "FC-04"] if scenario == "multi_fault" else [scenario]
-                for c in codes:
-                    conditions[c] = 0.82 * (1 - b["effect"]) if c == code else 0.82
-                future = observe(vehicle, f.timestamp, 44, conditions)
-                # Preserve operating state/clock and other sensors, change only affected sensor.
-                sensor = FAULTS[code][0]
-                f.loc[index:, sensor] = future.loc[index:, sensor]
-                component = self.db.execute(
-                    "select id from components where vehicle_id=? and code=? and replaced_at is null",
-                    (vehicle["vehicle_id"], code),
-                ).fetchone()
-                if component:
-                    for j in range(index, len(f)):
-                        ids = json.loads(f.loc[j, "installed_component_ids"])
-                        ids[code] = component[0]
-                        f.loc[j, "installed_component_ids"] = json.dumps(ids)
-        return f
-
-    def advance(self, scenario, steps=3, fail_export=False):
-        row = self.db.execute("select * from replay where scenario=?", (scenario,)).fetchone()
-        cursor = row["cursor"] if row else 0
-        f = self.replay_frame(scenario)
-        if not isinstance(steps, int) or steps < 1:
-            raise ValueError("Replay steps must be a positive integer")
-        end = min(len(f), cursor + steps)
-        # A failure rolls back cursor and incident updates together.
-        with self.atomic():
-            self.ingest(f.iloc[:end])
-            self.db.execute(
-                "insert into replay values (?,?,?) on conflict(scenario) do update set cursor=excluded.cursor",
-                (scenario, end, row["branch"] if row else "{}"),
+    @staticmethod
+    def validate_response(order, payload):
+        decision = payload.get("decision")
+        if decision not in ("Completed", "Rejected"):
+            raise ValueError("Choose Completed or Rejected")
+        rating = payload.get("rating")
+        if rating is not None and (type(rating) is not int or not 1 <= rating <= 5):
+            raise ValueError("Rating must be blank or an integer from 1 to 5")
+        at = pd.Timestamp(payload.get("response_at"))
+        if (
+            pd.isna(at)
+            or at.tzinfo is None
+            or at > pd.Timestamp(now()) + pd.Timedelta(minutes=5)
+            or at < pd.Timestamp(order["fault"]["confirmed_at"])
+        ):
+            raise ValueError(
+                "Response time must include timezone, follow fault detection, and not be in the future"
             )
-        self.export(fail_export)
-        return end
+        data = dict(
+            decision=decision,
+            rating=rating,
+            notes=str(payload.get("notes") or "").strip(),
+            response_at=at.tz_convert("UTC").isoformat(),
+            rejection_reason=None,
+            finding=None,
+            confirmed_cause=None,
+            action=None,
+            actual_parts=None,
+            reported_resolution=None,
+        )
+        if decision == "Rejected":
+            reason = str(payload.get("rejection_reason") or "").strip()
+            if not reason:
+                raise ValueError("A rejection reason is required")
+            data["rejection_reason"] = reason
+            return data
+        finding = payload.get("finding", "unknown")
+        if finding not in (
+            "component_deterioration",
+            "sensor_issue",
+            "no_fault_found",
+            "incorrect_recommendation",
+            "unknown",
+        ):
+            raise ValueError("Invalid finding")
+        cause = payload.get("confirmed_cause", "unknown")
+        if cause not in ["unknown"] + [p["family"] for p in order["snapshot"]["parts"]]:
+            raise ValueError("Cause does not apply to this fault")
+        action = payload.get("action", "report_only")
+        allowed = ["replacement", "inspection", "report_only"] + (
+            ["connection_repair"] if order["fault"]["code"] == "FC-04" else []
+        )
+        if action not in allowed:
+            raise ValueError("Action is not applicable")
+        parts = payload.get("actual_parts", {})
+        compatible = {p["sku"]: p["quantity"] for p in order["snapshot"]["parts"]}
+        if not isinstance(parts, dict) or any(
+            sku not in compatible or type(q) is not int or not 1 <= q <= compatible[sku]
+            for sku, q in parts.items()
+        ):
+            raise ValueError("Actual parts/quantities must be compatible with this saved order")
+        if action == "replacement" and not parts:
+            raise ValueError("Replacement requires the actual compatible parts")
+        if action != "replacement" and parts:
+            raise ValueError("Actual replacement parts apply only to Replacement")
+        resolution = payload.get("reported_resolution", "Not sure")
+        if resolution not in ("Resolved", "Not resolved", "Not sure"):
+            raise ValueError("Invalid reported resolution")
+        data.update(
+            finding=finding,
+            confirmed_cause=cause,
+            action=action,
+            actual_parts=parts,
+            reported_resolution=resolution,
+        )
+        return data
+
+    def audit(self, token):
+        self.admin(token)
+        return pd.read_sql_query("select * from audit order by id desc", self.db)
+
+    def legacy_feedback(self, token):
+        self.admin(token)
+        if not self.db.execute(
+            "select 1 from sqlite_master where type='table' and name='feedback'"
+        ).fetchone():
+            return pd.DataFrame()
+        return pd.read_sql_query("select * from feedback", self.db)

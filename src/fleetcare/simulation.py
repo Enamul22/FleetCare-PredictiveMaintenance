@@ -7,11 +7,12 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from .config import DATA, MODELS, COUNTRIES, VERSION, SETTINGS, SENSORS
+from .temporal import counters, supported_minutes
 
 
 def assets(n=1000, seed=SETTINGS.seed):
     r = np.random.default_rng(seed)
-    return pd.DataFrame(
+    result = pd.DataFrame(
         [
             dict(
                 vehicle_id=f"VEH-{i:04d}",
@@ -33,6 +34,17 @@ def assets(n=1000, seed=SETTINGS.seed):
             for i in range(1, n + 1)
         ]
     )
+
+    cities = {
+        "Finland": ["Helsinki", "Tampere", "Turku"],
+        "Germany": ["Berlin", "Hamburg", "Munich"],
+        "Spain": ["Madrid", "Valencia", "Seville"],
+        "United Kingdom": ["London", "Leeds", "Bristol"],
+    }
+    result["city"] = [cities[c][i % 3] for i, c in enumerate(result.country)]
+    names = ["Aurora Mobility", "Harbor Logistics", "Meadow Services", "Northern Routes", "Civic Transport"]
+    result["customer_name"] = [f"{names[int(c[-4:]) % 5]} {c[-4:]}" for c in result.customer_id]
+    return result
 
 
 def observe(vehicle, timestamps, seed, conditions=None, high_load=False):
@@ -97,8 +109,9 @@ def observe(vehicle, timestamps, seed, conditions=None, high_load=False):
         f[name] = value + r.normal(0, noise, n)
     f["oil_temperature_c"] += r.normal(0, 0.3)  # per-vehicle sensor bias
     f["fuel_rate_lph"] = 0.7 + load * 0.075 + speed * 0.013
-    f["odometer_km"] = vehicle["initial_odometer_km"] + np.cumsum(speed / 12)
-    f["lifetime_engine_hours"] = vehicle["initial_engine_hours"] + (np.arange(n) + 1) / 12
+    hours, distance = counters(f)
+    f["odometer_km"] = vehicle["initial_odometer_km"] + distance
+    f["lifetime_engine_hours"] = vehicle["initial_engine_hours"] + hours
     return f
 
 
@@ -152,8 +165,8 @@ def daily_for(vehicle, seed, detailed=None, full_q4=False):
     if detailed is not None:
         for date, g in detailed.groupby(detailed.timestamp.dt.floor("D")):
             mask = d.date == date
-            d.loc[mask, "operating_hours"] = len(g) / 12
-            d.loc[mask, "distance_km"] = (g.vehicle_speed_kmh / 12).sum()
+            d.loc[mask, "operating_hours"] = supported_minutes(g).sum() / 60
+            d.loc[mask, "distance_km"] = counters(g)[1][-1]
             for sensor in SENSORS + ["ambient_temperature_c", "engine_load_pct"]:
                 d.loc[mask, "mean_" + sensor] = g[sensor].mean()
             d.loc[mask, "condition_coverage"] = (g.quality_status == "valid").mean()
@@ -179,6 +192,23 @@ def full_day(vehicle, date, seed):
         f.loc[r.random(n) < 0.012, "quality_status"] = "missing"
         f.loc[f.quality_status == "missing", SENSORS] = np.nan
     return f
+
+
+def rebase_to_daily(detail, daily, vehicle):
+    """Share exact day-boundary counters; avoid subtract/add floating-point drift at restarts."""
+    detail = detail.copy()
+    indexed = daily.set_index("date")
+    starts = indexed[["odometer_km", "lifetime_engine_hours"]].shift(1)
+    starts.iloc[0] = [vehicle["initial_odometer_km"], vehicle["initial_engine_hours"]]
+    for date, indices in detail.groupby(detail.timestamp.dt.floor("D")).groups.items():
+        elapsed, distance = counters(detail.loc[indices])
+        detail.loc[indices, "odometer_km"] = float(starts.loc[date, "odometer_km"]) + distance
+        detail.loc[indices, "lifetime_engine_hours"] = (
+            float(starts.loc[date, "lifetime_engine_hours"]) + elapsed
+        )
+        detail.loc[indices[-1], "odometer_km"] = indexed.loc[date, "odometer_km"]
+        detail.loc[indices[-1], "lifetime_engine_hours"] = indexed.loc[date, "lifetime_engine_hours"]
+    return detail
 
 
 def generate(output=DATA, full=False, n=1000):
@@ -214,6 +244,8 @@ def generate(output=DATA, full=False, n=1000):
         w.to_parquet(output / "replays.parquet", index=False)
     daily = []
     for i, v in a.iterrows():
+        if i % 100 == 0:
+            print(f"Generating vehicle {i + 1}/{n}", flush=True)
         detail = None
         if full:
             chunks = [
@@ -227,16 +259,7 @@ def generate(output=DATA, full=False, n=1000):
             detail = w[w.vehicle_id == v.vehicle_id].copy()
         d = daily_for(v, SETTINGS.seed + i, detail if len(detail) else None, full_q4=full)
         if len(detail):
-            # Rebase detailed counters onto the same daily operating clock (including missing readings).
-            for date, indices in detail.groupby(detail.timestamp.dt.floor("D")).groups.items():
-                day = d[d.date == date].iloc[0]
-                g = detail.loc[indices]
-                detail.loc[indices, "odometer_km"] = (
-                    day.odometer_km - day.distance_km + (g.vehicle_speed_kmh / 12).cumsum().to_numpy()
-                )
-                detail.loc[indices, "lifetime_engine_hours"] = (
-                    day.lifetime_engine_hours - day.operating_hours + (np.arange(len(g)) + 1) / 12
-                )
+            detail = rebase_to_daily(detail, d, v)
             if full:
                 detail.to_parquet(p / "2025-Q4.parquet", index=False)
             else:
@@ -287,6 +310,8 @@ def generate(output=DATA, full=False, n=1000):
         seed=SETTINGS.seed,
         fleet_size=n,
         full_detailed=full,
+        data_revision="interval-support-r2",
+        exposure_definition="Consecutive engine-on timestamp intervals <=10 minutes; no terminal extrapolation; missing sensors do not erase operating context",
         daily_coverage="2025-01-01/2025-12-31",
         detailed_coverage="2025-10-01/2025-12-31"
         if full
