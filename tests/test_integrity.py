@@ -98,7 +98,11 @@ def test_full_generator_partition_and_aggregation(tmp_path):
     assert len(files) == 12
     detail = pd.read_parquet(files[0])
     daily = pd.read_parquet(tmp_path / "daily.parquet")
+    assert not (tmp_path / "replays.parquet").exists()
     assert set(detail.timestamp.dt.month) == {10, 11, 12}
+    q4 = daily[(daily.vehicle_id == detail.vehicle_id.iloc[0]) & (daily.date.dt.month >= 10)]
+    assert abs(q4.operating_hours.sum() - len(detail) / 12) < 1e-8
+    assert abs(q4.distance_km.sum() - (detail.vehicle_speed_kmh / 12).sum()) < 1e-8
     assert detail.lifetime_engine_hours.diff().dropna().ge(0).all()
     day = detail.timestamp.dt.floor("D").iloc[0]
     g = detail[detail.timestamp.dt.floor("D") == day]

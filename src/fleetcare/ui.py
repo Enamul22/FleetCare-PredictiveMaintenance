@@ -325,6 +325,9 @@ def orders(svc, assets):
     st.write(
         f"Trigger: measured **{proof['observed']:.2f}**, expected **{proof['expected']:.2f}**, comparison **{proof['value']:.2f}** at {proof['timestamp']}."
     )
+    st.write(
+        f"{proof.get('sensor', FAULTS[ctx['code']][0])}: {proof.get('valid_samples', '—')} valid samples across {proof.get('window_minutes', '—')} minutes; {proof.get('comparison', '')} threshold {proof.get('threshold', '—')}."
+    )
     st.caption(
         f"Suspected condition; root cause requires investigation. {ctx['policy_version']} · {ctx['baseline_version']} · {ctx['playbook_version']}"
     )

@@ -35,3 +35,6 @@ Checks and final completion ledger will be recorded here as work proceeds.
   overview resolution. Wide and 390×844 screenshots saved in docs/evidence; viewport override reset.
 - Local checks now 39 passing tests after adding critical notification reactivation, out-of-order input
   rejection and runtime/config snapshot consistency. No changes to evaluation thresholds/results.
+- Final data-integrity review: full-generation output is separated from curated replays, and zero-use Q4
+  days derive zero usage from complete telemetry coverage. Incident evidence now includes qualifying
+  duration, valid sample count, comparison and threshold. The full-path aggregation test covers this.

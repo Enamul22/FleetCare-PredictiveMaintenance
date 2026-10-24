@@ -119,7 +119,7 @@ def scenario(vehicle, kind, seed=44):
     return f
 
 
-def daily_for(vehicle, seed, detailed=None):
+def daily_for(vehicle, seed, detailed=None, full_q4=False):
     r = np.random.default_rng(seed)
     dates = pd.date_range("2025-01-01", "2025-12-31", tz="UTC")
     n = len(dates)
@@ -145,6 +145,10 @@ def daily_for(vehicle, seed, detailed=None):
     )
     approximate = [c for c in d.columns if c.startswith("mean_")]
     d[approximate] = d[approximate].round(2)
+    if full_q4:
+        q4 = d.date.dt.month >= 10
+        d.loc[q4, ["operating_hours", "distance_km", "condition_coverage"]] = 0.0
+        d.loc[q4, approximate] = np.nan
     if detailed is not None:
         for date, g in detailed.groupby(detailed.timestamp.dt.floor("D")):
             mask = d.date == date
@@ -179,6 +183,10 @@ def full_day(vehicle, date, seed):
 
 def generate(output=DATA, full=False, n=1000):
     output = Path(output)
+    if full and (output / "replays.parquet").exists():
+        raise ValueError(
+            "Full output must be separate from compact curated data; choose a new output directory"
+        )
     output.mkdir(parents=True, exist_ok=True)
     from .ingestion import part_catalog
 
@@ -202,7 +210,8 @@ def generate(output=DATA, full=False, n=1000):
         f["scenario"] = kind
         windows.append(f)
     w = pd.concat(windows, ignore_index=True)
-    w.to_parquet(output / "replays.parquet", index=False)
+    if not full:
+        w.to_parquet(output / "replays.parquet", index=False)
     daily = []
     for i, v in a.iterrows():
         detail = None
@@ -216,7 +225,7 @@ def generate(output=DATA, full=False, n=1000):
             p.mkdir(parents=True, exist_ok=True)
         else:
             detail = w[w.vehicle_id == v.vehicle_id].copy()
-        d = daily_for(v, SETTINGS.seed + i, detail if len(detail) else None)
+        d = daily_for(v, SETTINGS.seed + i, detail if len(detail) else None, full_q4=full)
         if len(detail):
             # Rebase detailed counters onto the same daily operating clock (including missing readings).
             for date, indices in detail.groupby(detail.timestamp.dt.floor("D")).groups.items():

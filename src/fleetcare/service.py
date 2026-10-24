@@ -146,8 +146,19 @@ class Service:
                     ).fetchone()
                     if status in ("warning", "critical"):
                         last = e.iloc[-1]
+                        policy = FAULTS[code]
+                        duration = 5 if status == "critical" else policy[4]
+                        window = e[e.timestamp >= row.timestamp - pd.Timedelta(minutes=duration)]
                         proof = json.dumps(
                             dict(
+                                sensor=policy[0],
+                                comparison=policy[1],
+                                trigger_severity=status,
+                                threshold=policy[3] if status == "critical" else policy[2],
+                                window_minutes=duration,
+                                cadence_minutes=SETTINGS.cadence_minutes,
+                                valid_samples=int(window.valid.sum()),
+                                expected_samples=duration // SETTINGS.cadence_minutes + 1,
                                 observed=float(last.observed),
                                 expected=float(last.expected),
                                 value=float(last.value),

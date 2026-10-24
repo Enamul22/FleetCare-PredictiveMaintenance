@@ -163,7 +163,7 @@ def evaluate(output=ROOT / "evaluation"):
         heldout_vehicles=160,
         operating_hours=round(hours, 3),
         events=len(truth),
-        event_matching="First qualifying alert at/after injected onset within episode; exact family for rules/raw; any family for generic IF. Other alerts are false incidents. No point adjustment.",
+        event_matching="First qualifying alert at/after injected onset within episode; exact family for rules/raw; any family for generic IF. False incidents have no matching active injected event. Repeated alerts within an active event count in alerts, not additional recall. No point adjustment.",
         partition="Development VEH-0001..0080; heldout VEH-0201..0360; curated seed 44 excluded.",
         methods={},
     )

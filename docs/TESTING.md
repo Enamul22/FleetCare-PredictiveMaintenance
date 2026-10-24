@@ -20,7 +20,7 @@ Rules recall 95% Wilson interval: [0.692, 0.902]. Zero false incidents in this s
 
 Pre-failure results: 0/4 eligible later failure events warned before failure. No positive lead-time claim. Most events have no separately defined later failure onset and are excluded from lead-time analysis.
 
-First qualifying alert at/after injected onset within episode; exact family for rules/raw; any family for generic IF. Other alerts are false incidents. No point adjustment.
+First qualifying alert at/after injected onset within episode; exact family for rules/raw; any family for generic IF. False incidents have no matching active injected event. Repeated alerts within an active event count in alerts, not additional recall. No point adjustment.
 
 Uncertainty treats events as independent for Wilson intervals; multi-fault clustering can reduce effective support. IF generic alerts may match multiple simultaneous events, so its family recall does not measure diagnosis. Mild loss is intentionally missed by some policies. No thresholds or preprocessing are tuned on this report. Challenger stays offline.
 
