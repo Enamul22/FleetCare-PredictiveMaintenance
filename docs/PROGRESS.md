@@ -43,3 +43,7 @@ Checks and final completion ledger will be recorded here as work proceeds.
   temporary local port. Clean setup used no editable package install, API keys or private files.
 - Implementation, local verification, documentation and screenshots are complete. Final remote push/CI
   outcome is reported in the delivery handoff and the repository Actions page; no hosting deployment.
+
+- GitHub Actions run 40107416021 passed all checks on pushed commit 87183e6. Its Node 20 action
+  deprecation notice prompted updating all three official actions to v7 (official current documentation
+  verified) and pinning ubuntu-24.04 to avoid runner migration drift. Final run is checked in handoff.
