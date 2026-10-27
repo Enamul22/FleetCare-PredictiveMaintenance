@@ -62,6 +62,10 @@ configuration before restricting a hosted review; see [deployment and authentica
    does not change sensor-derived fault status. Notes, including the word “partial”, have no simulation effect.
 
 An empty customer account is a valid state: orders appear only after explicit creation for that account.
+Signing out never deletes saved orders/responses. After signing back in, the default Open filter hides
+Completed/Rejected history; use **View all saved orders**, **Completed**, **Rejected**, or **All**. Saved-order
+counts make that distinction visible. Hosted SQLite can still be lost if the hosting instance restarts
+or is redeployed; that requires durable external storage, not a sign-out change.
 Back from a fault preserves filters and page position. Optional response columns and filtered CSV include
 technical feedback, timestamps, rating and rejection reason; null feedback is empty, never a zero rating.
 

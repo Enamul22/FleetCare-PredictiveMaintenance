@@ -482,37 +482,94 @@ def chart(svc, token, f, snapshot, order_id=None):
     )
     st.plotly_chart(fig, use_container_width=True)
     st.write(
-        f"**Supporting abnormal start:** {f['started_at']} · **First persistence confirmation:** {f['confirmed_at']}"
+        f"**First unusual readings:** {readable_time(f['started_at'])} · "
+        f"**Alert confirmed:** {readable_time(f['confirmed_at'])}"
     )
     if f["ended_at"]:
         st.write(
-            f"**Last observed abnormal reading:** {f['ended_at']} · **Recovery confirmed:** {f['recovery_confirmed_at']}"
+            f"**Last abnormal reading:** {readable_time(f['ended_at'])} · "
+            f"**Return to normal confirmed:** {readable_time(f['recovery_confirmed_at'])}"
         )
     else:
-        st.write("**Observed end:** not established. Lack of later data does not show recovery.")
+        st.write("**Return to normal: not confirmed in the recorded readings.**")
+        st.caption(
+            "The available sensor data does not show a sustained return to normal. "
+            "Completing a work order saves the customer’s report; it does not confirm recovery from sensor data."
+        )
     proof = json.loads(f["evidence"])
-    st.caption(
-        f"First confirmed evidence: {proof.get('observed', 0):.2f} observed versus {proof.get('expected', 0):.2f} expected; {proof.get('comparison', kind)} {proof.get('value', 0):.2f}, threshold {proof.get('threshold', '—')} across {proof.get('window_minutes', '—')} minutes. Five-minute cadence; valid coverage ≥80%; startup exclusions apply."
-    )
-    st.caption(
-        f"Saved recommendation evidence through {snapshot['evidence_as_of']}. Latest observed data: {f['last_observed_at']}."
-    )
+    st.write(customer_trigger(f["code"], proof))
+    st.caption(f"Latest available sensor reading: {readable_time(f['last_observed_at'])}.")
+    if order_id:
+        st.caption(
+            f"This order’s recommendation used readings available through {readable_time(snapshot['evidence_as_of'])}."
+        )
     if f["last_observed_at"] > snapshot["evidence_as_of"]:
-        st.info("Additional sensor observations were received after this order’s recommendation was saved.")
+        st.info("New sensor readings are available since this order’s recommendation was saved.")
+    with st.expander("How this alert was detected"):
+        st.write(
+            f"At confirmation: {proof.get('observed', 0):.2f} observed versus "
+            f"{proof.get('expected', 0):.2f} expected; {proof.get('comparison', kind)} "
+            f"{proof.get('value', 0):.2f}, threshold {proof.get('threshold', '—')} "
+            f"across {proof.get('window_minutes', '—')} minutes. "
+            "Readings are taken every five minutes. At least 80% of expected readings must be usable; "
+            "startup and unsuitable operating conditions are excluded. Thresholds are fictional demo settings."
+        )
+        st.caption(
+            "The expected value accounts for operating conditions. This alert identifies an unusual "
+            "sensor condition, not a confirmed mechanical cause."
+        )
+
+
+def readable_time(value):
+    return pd.Timestamp(value).tz_convert("UTC").strftime("%d %b %Y at %H:%M UTC")
+
+
+def customer_trigger(code, proof):
+    labels = {
+        "FC-01": ("Oil temperature", "°C", "higher than expected"),
+        "FC-02": ("Coolant temperature", "°C", "higher than expected"),
+        "FC-03": ("Oil pressure", " bar", "lower than expected"),
+        "FC-04": ("Charging voltage", " V", "lower than expected"),
+        "FC-05": ("Engine vibration", " relative units", "higher than expected"),
+    }
+    label, unit, direction = labels[code]
+    return (
+        f"**Why this alert appeared:** {label} stayed {direction} for at least "
+        f"{proof.get('window_minutes', '—')} minutes. "
+        f"When the alert was confirmed, the reading was {proof.get('observed', 0):.1f}{unit}; "
+        f"the expected value for those operating conditions was {proof.get('expected', 0):.1f}{unit}."
+    )
 
 
 def order_overview(svc, token, user):
     st.title("Work order overview")
     st.write("Review assigned maintenance recommendations and submit a final response.")
     frame = svc.orders(token)
+    counts = frame.order_status.value_counts()
+    st.caption(
+        f"Saved orders · Open: {counts.get('Open', 0)} · Completed: {counts.get('Completed', 0)} · "
+        f"Rejected: {counts.get('Rejected', 0)}. Signing out does not delete saved orders or responses."
+    )
+    if st.session_state.pop("show_order_history", False):
+        st.session_state.order_status_filter = "All"
+        st.session_state.order_search = ""
+        st.session_state.pop("order_page_control", None)
+        st.session_state.order_filters = dict(status="All", search="")
     c = st.columns([1, 2])
     saved = st.session_state.get("order_filters", {})
+    if "order_status_filter" not in st.session_state:
+        st.session_state.order_status_filter = saved.get("status", "Open")
     status = c[0].selectbox(
         "Order status",
         ["Open", "Completed", "Rejected", "All"],
-        index=["Open", "Completed", "Rejected", "All"].index(saved.get("status", "Open")),
         key="order_status_filter",
     )
+    if status == "Open" and counts.get("Completed", 0) + counts.get("Rejected", 0):
+        st.info("Completed and rejected orders are saved in history. The Open filter hides them.")
+        st.button(
+            "View all saved orders",
+            on_click=lambda: st.session_state.update(show_order_history=True),
+        )
     search = c[1].text_input("Search order or vehicle", value=saved.get("search", ""), key="order_search")
     st.session_state.order_filters = dict(status=status, search=search)
     filtered = frame if status == "All" else frame[frame.order_status == status]

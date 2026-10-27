@@ -84,3 +84,16 @@ password_hash = "pbkdf2_sha256$..."
   No such external store is implemented here, and none is required for local review.
 - Any reset/reseed is an explicit offline developer action after backing up the DB; never delete historical
   records to work around migration failures. No real notifications, purchase orders or CRM writes are made.
+
+## If hosted orders appear to disappear
+
+Sign-out deletes only its login session and clears navigation. Select Order status → All in the same
+customer account to distinguish hidden completed history from missing saved records. If history is
+missing there too, investigate the hosted database: a container replacement/redeployment can remove
+the local SQLite file, a changed db_path can open a different file, and db_path=":memory:" is deliberately
+non-persistent. The normal default uses a shared file, not memory. Do not reset/reseed as a repair.
+
+Streamlit [does not guarantee local file persistence](https://docs.streamlit.io/develop/concepts/connections/connecting-to-data).
+Persistent hosted history needs an external durable database integration; moving the file to a different
+local folder is not enough. This project does not yet implement that adapter. Avoid pushing/redeploying
+a live review app merely to investigate missing history; export any still-readable records first.

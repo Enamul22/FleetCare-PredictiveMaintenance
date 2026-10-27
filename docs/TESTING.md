@@ -42,7 +42,8 @@ shared-store restart, authorization including direct foreign detail/evidence/sub
 single-order creation, recoverable export failure, stable snapshots, null feedback, transaction rollback,
 concurrency, identical/conflicting retries, expiry/logout, rejection and completed-but-not-resolved.
 
-Streamlit AppTest exercises admin creation and separate customer submission/writeback. Chrome review checks
+Streamlit AppTest exercises admin creation and separate customer submission/writeback, including customer
+sign-out/sign-in, the history shortcut and saved admin feedback after reconnection. Chrome review checks
 native table selection, all nested tabs, separate signed-in sessions and refreshed saved responses; screenshot
 details are in evidence/README.md. Operational verification uses an isolated store and records five explicit
 orders/responses, zero duplicates and exactly 70 joined fault rows in evaluation/operational.json. Notes have

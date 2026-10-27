@@ -86,3 +86,19 @@ Completed update implementation:
   checks passed. Streamlit app.py startup returned HTTP 200 / ok on a temporary local port. No private
   file, editable install, API key or full generator was required. Final follow-up changes are screenshots
   and this evidence record only; remote CI for the pushed final commit is inspected in the handoff.
+
+## 27 October 2026 · history visibility and customer wording
+
+- Sign-out revokes the session and clears navigation, not shared saved orders/feedback. Added saved
+  Open/Completed/Rejected counts and View all saved orders to explain history hidden by the Open filter.
+- Reproduced customer sign-out/sign-in with retained completed response and tested admin reconnection.
+- Replaced persistence/coverage jargon below charts with plain sensor-specific explanation and readable
+  UTC dates/units. Detailed formula/quality rules remain in a collapsed explanation. Recovery remains
+  evidence-derived: completion cannot establish a return to normal in the fixed 2025 dataset.
+- These changes do not add durable hosted storage or claim to diagnose an unobserved hosted reset.
+- User confirmed the deployed app still has no history under All. This rules out a filter-only explanation;
+  no hosted reset/configuration cause was claimed as proven without logs. Official Streamlit documentation
+  confirms local-file persistence is not guaranteed. Durable database setup remains outstanding.
+- Final local verification: 36 tests passed in 16.46 s, lint/format and diff checks passed. Chrome verified
+  sign-out/sign-in retains the completed local response, history shortcut displays All consistently, and
+  plain-language evidence is readable. Changes saved locally; no push or live hosting mutation performed.

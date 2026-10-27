@@ -62,6 +62,35 @@ def test_two_workspaces_and_complete_cross_session_response(tmp_path, monkeypatc
         row["notes"] == "partial is only customer feedback" and row["fault_status"] == selected.fault_status
     )
 
+    # Signing out clears navigation/session credentials, never the saved customer response.
+    next(b for b in customer.button if b.label == "Sign out").click().run()
+    customer = login(
+        customer,
+        f"customer{selected.customer_id[-4:]}@fleetcare.example",
+        "fleetcare-customer-demo",
+    )
+    assert customer.selectbox(key="order_status_filter").value == "Open"
+    assert any("Completed: 1" in c.value for c in customer.caption)
+    next(b for b in customer.button if b.label == "View all saved orders").click().run()
+    assert not customer.exception and not customer.warning
+    assert customer.selectbox(key="order_status_filter").value == "All"
+    assert any("1 matching / 1 assigned orders" in c.value for c in customer.caption)
+    customer.session_state["selected_order"] = oid
+    customer.run()
+    assert any("Decision: Completed" in m.value for m in customer.markdown)
+    assert any("Why this alert appeared:" in m.value for m in customer.markdown)
+    assert any("Return to normal: not confirmed" in m.value for m in customer.markdown)
+    assert any("How this alert was detected" == e.label for e in customer.expander)
+    next(b for b in admin.button if b.label == "Sign out").click().run()
+    admin = login(
+        AppTest.from_file("app.py", default_timeout=30).run(),
+        "admin@fleetcare.example",
+        "fleetcare-admin-demo",
+    )
+    stored = admin.session_state["service"].fault(admin.session_state["token"], selected.fault_id)
+    assert stored["order_id"] == oid and stored["order_status"] == "Completed"
+    assert stored["notes"] == "partial is only customer feedback" and stored["rating"] == 4
+
 
 def test_rejection_and_null_feedback_ui(tmp_path, monkeypatch):
     monkeypatch.setenv("FLEETCARE_DB", str(tmp_path / "reject.sqlite"))

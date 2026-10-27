@@ -40,3 +40,13 @@ local-tests.xml records 36 passing local tests. evaluation/report.json and opera
 measured detector and five-family service checks. Exact clean-setup and remote Actions results are recorded
 in PROGRESS.md and the final handoff. This evidence does not establish production readiness or real repair
 success.
+
+## 27 October 2026 · local clarity follow-up
+
+A real Chrome sign-out/sign-in retained customer0085's completed order and response in the shared local
+review store. history-after-login.jpg shows the new counts and Open-filter explanation;
+history-all-orders.jpg shows the history shortcut selecting All and the retained completed row.
+customer-evidence-explanation.jpg shows plain-language trigger/recovery explanation and readable UTC dates.
+These local checks do not diagnose or fix reported missing records on the deployed app. Hosted local
+SQLite persistence remains unguaranteed. Follow-up code/screenshots remain local for review, without a
+GitHub push or hosting mutation.
