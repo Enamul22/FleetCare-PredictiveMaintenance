@@ -5,8 +5,8 @@ No hosting deployment or account connection change was performed.
 
 ## Local shared demonstration
 
-Python 3.12; install requirements.lock.txt, then `streamlit run app.py`. Default saved store is the
-repository's ignored fleetcare.sqlite. Override with `FLEETCARE_DB=/absolute/path/review.sqlite`.
+Python 3.12; install requirements.lock.txt, then `streamlit run app.py`. Default local saved store is the
+repository's ignored fleetcare.sqlite. For hosted persistence use [Neon/PostgreSQL](NEON_SETUP.md). Override with `FLEETCARE_DB=/absolute/path/review.sqlite`.
 Two browser tabs sign in independently and read/write that same saved store. Refresh saved changes
 requeries it. Restart does not require reseeding/replaying workflow data. There is no customer reset button.
 
@@ -67,3 +67,16 @@ role = "customer"
 customer_id = "CUS-0085"
 password_hash = "pbkdf2_sha256$..."
 ```
+
+## If hosted orders appear to disappear
+
+Sign-out deletes only its login session and clears navigation. Select Order status → All in the same
+customer account to distinguish hidden completed history from missing saved records. If history is
+missing there too, investigate the hosted database: a container replacement/redeployment can remove
+the local SQLite file, a changed db_path can open a different file, and db_path=":memory:" is deliberately
+non-persistent. The normal default uses a shared file, not memory. Do not reset/reseed as a repair.
+
+Streamlit [does not guarantee local file persistence](https://docs.streamlit.io/develop/concepts/connections/connecting-to-data).
+Persistent hosted history needs the optional PostgreSQL adapter and a configured remote database; moving
+the file to a different local folder is not enough. Follow NEON_SETUP.md to initialize and configure Neon. Avoid pushing/redeploying
+a live review app merely to investigate missing history; export any still-readable records first.

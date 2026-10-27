@@ -20,3 +20,11 @@ Authentication and row-selection design consulted current official Streamlit doc
 
 Streamlit's OIDC login requires an identity provider; this standalone demo instead implements modest
 server-side hashed credential mapping with explicit service authorization. It does not claim OIDC/SSO.
+
+PostgreSQL persistence implementation references:
+- [Neon documentation index](https://neon.com/docs/llms.txt)
+- [Psycopg transaction management](https://www.psycopg.org/psycopg3/docs/basic/transactions.html)
+- [Psycopg row factories](https://www.psycopg.org/psycopg3/docs/api/rows.html)
+- [Streamlit local-storage limits](https://docs.streamlit.io/develop/concepts/connections/connecting-to-data)
+
+Neon SQL schema migration is tested on an expiring child branch before any production initialization.

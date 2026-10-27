@@ -86,3 +86,51 @@ Completed update implementation:
   checks passed. Streamlit app.py startup returned HTTP 200 / ok on a temporary local port. No private
   file, editable install, API key or full generator was required. Final follow-up changes are screenshots
   and this evidence record only; remote CI for the pushed final commit is inspected in the handoff.
+
+## 27 October 2026 · history visibility and customer wording
+
+- Sign-out revokes the session and clears navigation, not shared saved orders/feedback. Added saved
+  Open/Completed/Rejected counts and View all saved orders to explain history hidden by the Open filter.
+- Reproduced customer sign-out/sign-in with retained completed response and tested admin reconnection.
+- Replaced persistence/coverage jargon below charts with plain sensor-specific explanation and readable
+  UTC dates/units. Detailed formula/quality rules remain in a collapsed explanation. Recovery remains
+  evidence-derived: completion cannot establish a return to normal in the fixed 2025 dataset.
+- These changes do not add durable hosted storage or claim to diagnose an unobserved hosted reset.
+- User confirmed the deployed app still has no history under All. This rules out a filter-only explanation;
+  no hosted reset/configuration cause was claimed as proven without logs. Official Streamlit documentation
+  confirms local-file persistence is not guaranteed. Durable database setup remains outstanding.
+- Final local verification: 36 tests passed in 16.46 s, lint/format and diff checks passed. Chrome verified
+  sign-out/sign-in retains the completed local response, history shortcut displays All consistently, and
+  plain-language evidence is readable. Changes saved locally; no push or live hosting mutation performed.
+
+## 27 October 2026 · durable PostgreSQL backend review
+
+- Located Enamul's existing FleetCare Neon project (Free, Frankfurt). Neon plugin is listed as installed
+  but its SQL tools are not exposed in this chat; reused the already-signed-in console session. No second
+  project, paid plan, identity-provider replacement, or hosting change was created.
+- Created an isolated child branch fleetcare-persistence-review-20261027, auto-delete after one day.
+  Direct/pooled test URLs were saved outside Git with mode 0600 and never printed. Production branch
+  remains unchanged. Do not use the expiring branch URL for persistent hosted history.
+- Implemented optional PostgreSQL through psycopg 3.3.6, preserving local SQLite and the shared Service.
+  Versioned offline migration, schema isolation, explicit TLS configuration, batching, pool-compatible
+  transactions/advisory locks, unique keys, bound parameters, and fail-closed backend selection added.
+- Real Neon tests exercise the same operational/query acceptance cases as SQLite plus fresh-process
+  persistence, migration rerun preservation, unknown/unrelated schema refusal and remote TLS guards.
+- Browser review exposed an idle-connection failure before sign-in's transaction body. Added one reconnect
+  only before a body starts; bodies/uncertain commits are never blindly replayed. Added a regression test
+  and clear sign-in/sign-out/principal connection errors instead of raw tracebacks.
+- CI now provisions disposable PostgreSQL 18; no private Neon credentials are required in GitHub Actions.
+  App name/version and detector/data outputs remain unchanged. Documentation describes reviewed cutover,
+  preservation limits and Neon's independent storage rather than claiming SQLite is hosted durability.
+
+- Final combined SQLite/real-Neon checks: 52 passed, 2 intentional SQLite skips in 132.30 s; lint, format,
+  compile and dependency integrity pass. Browser PostgreSQL flow completed: admin create → separate
+  customer response → logout/login retains history → admin reads the same response. Screenshots saved.
+- Fetched remote main and found Enamul's two documentation commits (e42e7de, b620dfb). Preserve their
+  synthetic-data wording and removed old deployment checklist when merging the review branch.
+
+- After isolated tests passed, initialized permanent production schema fleetcare: 70 faults, zero orders,
+  zero responses. No test records copied. Saved the production pooled configuration in ignored
+  .env.neon-streamlit.toml, mode 0600. Live hosting Secrets and deployed branch remain unchanged.
+- Resolved documentation-only upstream conflicts by preserving Enamul's wording and removal of the old
+  deployment sections; kept the new PostgreSQL setup/troubleshooting guide as the relevant current change.

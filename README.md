@@ -4,7 +4,7 @@ A synthetic maintenance workflow by **Enamul Haque**, with two workspaces:
 
 **Complete detected-fault dataset → administrator reviews evidence → Create work order → assigned customer reads actions/parts → Completed or Rejected response → the same fault row shows the response.**
 
-[Repository](https://github.com/Enamul22/FleetCare-PredictiveMaintenance) · Python 3.12 · Streamlit · SQLite · pandas/Parquet · scikit-learn · Plotly. Public package version remains **1.0.0**; entry point remains **app.py**.
+[Repository](https://github.com/Enamul22/FleetCare-PredictiveMaintenance) · Python 3.12 · Streamlit · SQLite/PostgreSQL · pandas/Parquet · scikit-learn · Plotly. Public package version remains **1.0.0**; entry point remains **app.py**.
 
 ![Fault overview](docs/evidence/overview-wide.jpg)
 
@@ -62,12 +62,16 @@ configuration before restricting a hosted review; see [deployment and authentica
    does not change sensor-derived fault status. Notes, including the word “partial”, have no simulation effect.
 
 An empty customer account is a valid state: orders appear only after explicit creation for that account.
+Signing out never deletes saved orders/responses. After signing back in, the default Open filter hides
+Completed/Rejected history; use **View all saved orders**, **Completed**, **Rejected**, or **All**. Saved-order
+counts make that distinction visible. Hosted SQLite can still be lost if the hosting instance restarts
+or is redeployed; that requires durable external storage, not a sign-out change.
 Back from a fault preserves filters and page position. Optional response columns and filtered CSV include
 technical feedback, timestamps, rating and rejection reason; null feedback is empty, never a zero rating.
 
 ## Shared saved state and authorization
 
-The default is shared SQLite at `fleetcare.sqlite`, with WAL, transactional writes, opaque expiring
+The local default is shared SQLite at `fleetcare.sqlite`, with WAL, transactional writes, opaque expiring
 sign-in sessions, service-enforced roles/ownership, and unique order/response keys. Admin and customer
 sessions see each other's saved workflow changes through fresh queries. Local records survive restart.
 Only a customer's assigned orders and linked evidence are available to their authenticated session;
@@ -83,10 +87,22 @@ by an additive migration. Legacy assigned/in_progress map to Open; completed map
 maps to Rejected with its original legacy state retained. Missing customer decisions/end times are not invented.
 Legacy technical feedback remains separately readable by administrators.
 
-This is a modest **single-instance synthetic demonstration**, not production identity management or a
-production multiuser service. Demo passwords are public by design. Hosted local files can be lost on sleep,
-restart or redeployment and cannot coordinate separate replicas. Reliable hosted durability requires a future
-external store configuration/implementation; no external durable backend or OIDC integration is claimed.
+For durable hosted history, configure **PostgreSQL on Neon**. The application supports it through
+`[fleetcare].database_url` in Streamlit Secrets or `FLEETCARE_DATABASE_URL` on the server. All orders,
+responses, identities, sessions and audit records then live in that remote database, independently of the
+Streamlit filesystem. An offline versioned migration uses the **direct** connection; normal app traffic
+uses the **pooled** TLS connection. See [Neon setup and cutover](docs/NEON_SETUP.md).
+
+The selected backend appears in the sidebar. A configured PostgreSQL failure stops the operation; it never
+silently opens a new SQLite database. Transactions retain unique order/response keys, ownership validation,
+rollback and idempotent retry behaviour. Read reconnection is bounded; uncertain writes are not blindly replayed.
+No existing SQLite file is deleted, no old records are silently imported/overwritten, and already-lost hosted
+records cannot be recovered merely by changing the backend.
+
+This remains a synthetic portfolio demonstration, not production identity management or an availability
+SLA. Public demo credentials are intentionally known. Unconfigured hosted SQLite can still be lost on
+restart/redeployment; the persistence fix requires configuring PostgreSQL as well as deploying the code.
+Neon's free-plan limits/retention still apply; choose and test a backup policy before relying on important data.
 
 ## Complete detection dataset and reproducibility
 
@@ -149,7 +165,7 @@ flowchart LR
   Full[Full synthetic telemetry] --> Pipeline[Offline baseline + temporal episode detection]
   Pipeline --> Faults[Complete prepared fault result and supporting observations]
   Faults --> Admin[Admin: Fault overview]
-  Admin -->|Create work order| Store[Shared SQLite + snapshots + audit]
+  Admin -->|Create work order| Store[Selected shared store + snapshots + audit]
   Store --> Customer[Assigned customer: Work order overview]
   Customer -->|Completed / Rejected + technical feedback| Store
   Store --> Joined[One joined row per fault]
@@ -160,7 +176,7 @@ flowchart LR
 - [Dataset/simulator card](docs/DATASET_CARD.md) · [Detector/model card](docs/MODEL_CARD.md)
 - [Five playbooks](docs/PLAYBOOKS.md) · [Tests and evaluation](docs/TESTING.md)
 - [Updated review screenshots](docs/evidence/README.md) · [Progress record](docs/PROGRESS.md)
-- [Manual deployment/authentication checklist](docs/DEPLOYMENT.md)
+- [Authentication and storage configuration](docs/DEPLOYMENT.md)
 
 ServicePlan scheduling and FleetPulse scoring remain future projects. Shared schemas/histories are
 preserved; no scheduler, overall condition score, peer percentile engine or portfolio website is included.

@@ -9,7 +9,7 @@ flowchart LR
   ERP[Mock compatible parts] --> Snapshot[Versioned order snapshot]
   Telemetry[Complete Q4 telemetry] --> Detector[Offline frozen baseline + bounded temporal policies]
   Detector --> Episodes[Fault episodes + support files]
-  Fleet --> DB[Shared SQLite]
+  Fleet --> DB[Shared SQLite locally / PostgreSQL when configured]
   Episodes --> DB
   Admin[Authenticated administrator] -->|Explicit create| Snapshot
   Snapshot --> DB
@@ -23,6 +23,7 @@ and shared counters. `detection.py` contains frozen-regression inference, truste
 a bounded batch trace, and stable episode extraction. `pipeline.py` processes every source partition offline,
 bundles every episode's support and records provenance. `evaluation.py` is separate from operational data.
 
+`storage.py` provides SQLite and PostgreSQL adapters; `database.py` applies versioned offline PostgreSQL migrations.
 `service.py` owns shared storage, migration, authorized queries, explicit work-order creation, recommendation
 snapshots and atomic responses. `auth.py` verifies PBKDF2 credentials and server-controlled identity mappings.
 An opaque session token is hashed in the store, expires after eight hours, and resolves to the enabled user's
@@ -51,10 +52,25 @@ order status and append audit atomically. Identical final retries return the sav
 an error rather than overwrite it. Responses do not reserve/consume stock, operate ERP, change sensor records,
 reset components, or interpret notes as simulation controls. Actual part quantities are customer reports.
 
-SQLite uses WAL, foreign keys, a 30-second busy timeout and BEGIN IMMEDIATE write transactions. It supports a
-modest shared single-instance demonstration; it is not a distributed or production multiuser backend. Local
-saved state survives restart. Hosted filesystem durability/replica coordination is not promised. External
-storage is a future configurable extension, not an implemented dependency.
+SQLite uses WAL, foreign keys, a 30-second busy timeout and BEGIN IMMEDIATE transactions. PostgreSQL
+uses psycopg 3, remote TLS, autocommit connections with explicit transaction blocks, transaction-local
+search paths/timeouts and a schema-scoped advisory transaction lock. The lock retains the same modest
+serialized writer model, including seeding and final responses; this is not a high-throughput architecture.
+Prepared statements are disabled for compatibility with pooled transaction connections. Returned rows
+and bound SQL parameters share the same service/query interface, tested against both actual engines.
+
+The PostgreSQL schema is isolated under `fleetcare`. Migration 001 runs offline through a direct URL;
+runtime verifies the migration marker and uses a pooled URL without issuing schema DDL. Prepared reference
+records import idempotently in batches, preserving work orders, responses and snapshots. Invalid/missing
+remote configuration fails closed instead of opening an empty local store. Runtime errors do not print URLs.
+A closed connection reconnects; a failed read can retry once. Writes are not automatically replayed when
+commit outcome is uncertain. Unique keys and normalized response payloads make explicit retries safe.
+
+SQLite is intended for local/single-instance review. Hosted SQLite durability is not promised. Configured
+PostgreSQL persists operational history independently of Streamlit restarts and sessions; this was tested
+on a separate Neon branch, including a fresh process. Only small operational/reference records go to the
+database; prepared charts/telemetry remain in the repository. Auth remains the existing server-controlled
+credential mapping; Neon Auth, Functions, Object Storage and Data API are not required or enabled.
 
 ## Additive migration
 

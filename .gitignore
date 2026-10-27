@@ -9,3 +9,5 @@ __pycache__/
 data/full/
 .streamlit/secrets.toml
 config/private-users.json
+.env.*
+.neon
