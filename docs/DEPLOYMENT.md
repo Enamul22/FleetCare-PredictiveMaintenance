@@ -68,24 +68,6 @@ customer_id = "CUS-0085"
 password_hash = "pbkdf2_sha256$..."
 ```
 
-## Streamlit checklist after review
-
-- Review current tests, matching/uncertainty limits, screenshots and successful CI for the exact commit.
-- Sign in to Streamlit with Enamul's account; never use Priynka's deployment connection.
-- Choose Enamul22/FleetCare-PredictiveMaintenance, main, entry point app.py, Python 3.12.
-- Keep prepared data in the clone; never run full generation/training/detection at app startup.
-- Configure review identities as above if restricting who can enter. Do not use real customer data.
-- Verify admin row selection/Create → customer Open order → response → admin refresh in separate sessions.
-- Verify another customer's signed-in session cannot read or change that order/evidence.
-- Check Completed/Rejected history, rejected reason, null rating, response timestamps and independent fault status.
-- Shared SQLite is for one running instance only. A hosted local file can disappear on sleep/restart/redeploy;
-  multiple replicas would not share it. No reliable hosted durability or production multiuser readiness is claimed.
-- Reliable durable hosting requires configuring the PostgreSQL adapter plus authentication/concurrency verification.
-  The optional PostgreSQL adapter is now implemented; configure it using NEON_SETUP.md. SQLite remains
-  available for local review.
-- Any reset/reseed is an explicit offline developer action after backing up the DB; never delete historical
-  records to work around migration failures. No real notifications, purchase orders or CRM writes are made.
-
 ## If hosted orders appear to disappear
 
 Sign-out deletes only its login session and clears navigation. Select Order status → All in the same

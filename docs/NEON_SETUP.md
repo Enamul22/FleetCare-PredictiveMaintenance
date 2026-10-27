@@ -4,6 +4,14 @@ FleetCare remains version 1.0.0. This optional backend stores small operational 
 Postgres on Neon; Streamlit continues to host the Python application. Telemetry/Parquet files stay in Git.
 There is no Neon Auth, Data API, object-storage or frontend rewrite.
 
+## Current owner review setup
+
+On 27 October 2026 the permanent production branch was initialized with schema `fleetcare`, all 70
+prepared faults and zero work orders/responses. Temporary browser/test orders were not copied into it.
+The owner’s ignored `.env.neon-streamlit.toml` file contains the production pooled settings, mode 0600;
+it is a private local handoff file, not an automatically loaded app configuration. Merge its keys into
+hosting Secrets only after reviewing the code. The live Streamlit configuration was not changed.
+
 ## Connection and schema setup
 
 1. Use Enamul's verified FleetCare Neon project, Free plan, Frankfurt. Keep its default production branch

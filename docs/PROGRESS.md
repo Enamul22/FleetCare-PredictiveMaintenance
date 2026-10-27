@@ -128,3 +128,9 @@ Completed update implementation:
   customer response → logout/login retains history → admin reads the same response. Screenshots saved.
 - Fetched remote main and found Enamul's two documentation commits (e42e7de, b620dfb). Preserve their
   synthetic-data wording and removed old deployment checklist when merging the review branch.
+
+- After isolated tests passed, initialized permanent production schema fleetcare: 70 faults, zero orders,
+  zero responses. No test records copied. Saved the production pooled configuration in ignored
+  .env.neon-streamlit.toml, mode 0600. Live hosting Secrets and deployed branch remain unchanged.
+- Resolved documentation-only upstream conflicts by preserving Enamul's wording and removal of the old
+  deployment sections; kept the new PostgreSQL setup/troubleshooting guide as the relevant current change.
