@@ -2,6 +2,8 @@
 
 All vehicles, customers, measurements, procedures and parts are fictional. Timestamps are UTC.
 Public application version remains 1.0.0; internal detection revision is independent.
+Operational records use SQLite locally or the same authoritative schema on PostgreSQL when configured.
+PostgreSQL migration 001 uses schema `fleetcare` and a generated bigint audit ID. No detector/data revision changed.
 
 | Record | Keys and contents | Coverage / authority |
 |---|---|---|
@@ -14,7 +16,7 @@ Public application version remains 1.0.0; internal detection revision is indepen
 | faults.parquet | stable episode ID, vehicle/code, severity, supporting start, confirmation, observed end, recovery confirmation, last detection/observation, status, versions, evidence, support file | Complete materialized output: 70 episodes, all five families; no cap |
 | support/*.parquet | actual Q4 observed rows for every vehicle with a detected fault | Complete chart support; never generic scenario substitutions |
 | parts | SKU, ERP ID, model, fault, family, proposed quantity, fictional price/stock | 64 model-compatible fictional SKUs; customer reports do not change stock |
-| customers / vehicles | stable customer ownership and location | Shared SQLite reference tables |
+| customers / vehicles | stable customer ownership and location | Shared selected-backend reference tables |
 | users / sessions | mapped role/customer, salted password hash, enabled flag; hashed opaque token and expiry | Server-side sign-in; role is not an editable reporting field |
 | faults | imported episode evidence and optional legacy_state | Sensor-derived authority; response never establishes recovery |
 | export_requests | unique fault ID, state, attempts, error, immutable requested snapshot, actor/time | Explicit admin Create only; failed attempt remains retryable |

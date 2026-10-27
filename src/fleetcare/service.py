@@ -1,16 +1,16 @@
-"""Shared SQLite services: additive migration, explicit exports, tenant authorization and atomic responses."""
+"""Shared storage services: additive migration, explicit exports, tenant authorization and atomic responses."""
 
 import hashlib
 import json
 import os
 import secrets
-import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 import pandas as pd
 from .config import DATA, FAULTS, TASKS, POLICY
 from .auth import UserConfig, hash_password, verify_password
 from .detection import Baseline
+from .storage import SQLiteStore, PostgresStore, StorageError
 
 
 class ConflictError(ValueError):
@@ -58,22 +58,35 @@ def now():
 
 
 class Service:
-    def __init__(self, path=None, data=DATA, auth_config=None):
+    def __init__(self, path=None, data=DATA, auth_config=None, database_url=None, database_schema=None):
         self.data = Path(data)
-        self.path = str(path or os.environ.get("FLEETCARE_DB", str(DATA.parents[1] / "fleetcare.sqlite")))
-        if self.path != ":memory:":
-            Path(self.path).parent.mkdir(parents=True, exist_ok=True)
-        self.db = sqlite3.connect(self.path, timeout=30, check_same_thread=False, isolation_level=None)
-        self.db.row_factory = sqlite3.Row
-        self.db.execute("pragma foreign_keys=on")
-        self.db.execute("pragma journal_mode=wal")
-        self.db.execute("pragma busy_timeout=30000")
-        # CREATE statements do not rename/drop legacy tables; all their rows remain untouched.
-        self.db.executescript(SCHEMA)
-        with self.atomic():
-            columns = {r[1] for r in self.db.execute("pragma table_info(audit)")}
-            if "actor" not in columns:
-                self.db.execute("alter table audit add column actor text")
+        # Explicit SQLite paths isolate local tests/tools even if the host has a database URL.
+        url = (
+            database_url
+            if database_url is not None
+            else (os.environ.get("FLEETCARE_DATABASE_URL") if path is None else None)
+        )
+        database_schema = database_schema or os.environ.get("FLEETCARE_DATABASE_SCHEMA", "fleetcare")
+        if url is not None:
+            self.path = "PostgreSQL / " + database_schema
+            self.db = PostgresStore(url, database_schema)
+            if "store_meta" not in self.db.tables():
+                self.db.close()
+                raise StorageError(
+                    "PostgreSQL is configured but not initialized. Run the offline FleetCare database migration using its direct connection first."
+                )
+            revision = self.db.execute("select value from store_meta where key='schema_pg'").fetchone()
+            if not revision or revision[0] != "1":
+                self.db.close()
+                raise StorageError("The PostgreSQL schema needs the current FleetCare migration.")
+        else:
+            self.path = str(path or os.environ.get("FLEETCARE_DB", str(DATA.parents[1] / "fleetcare.sqlite")))
+            self.db = SQLiteStore(self.path)
+            self.db.executescript(SCHEMA)
+            with self.atomic():
+                if "actor" not in self.db.columns("audit"):
+                    self.db.execute("alter table audit add column actor text")
+        self.backend = self.db.backend
         self.seed_reference()
         self.migrate_legacy()
         config = auth_config
@@ -83,13 +96,8 @@ class Service:
 
     @contextmanager
     def atomic(self):
-        self.db.execute("begin immediate")
-        try:
+        with self.db.transaction():
             yield
-            self.db.execute("commit")
-        except Exception:
-            self.db.execute("rollback")
-            raise
 
     def log(self, kind, entity, detail, actor="system"):
         self.db.execute(
@@ -107,26 +115,35 @@ class Service:
             if current and current[0] == digest:
                 return
             a = pd.read_parquet(self.data / "assets.parquet")
-            for v in a.itertuples():
-                self.db.execute(
-                    "insert into customers values (?,?) on conflict(customer_id) do update set customer_name=excluded.customer_name",
-                    (v.customer_id, v.customer_name),
-                )
-                self.db.execute(
-                    "insert into vehicles values (?,?,?,?,?) on conflict(vehicle_id) do update set customer_id=excluded.customer_id,model_id=excluded.model_id,country=excluded.country,city=excluded.city",
-                    (v.vehicle_id, v.customer_id, v.model_id, v.country, v.city),
-                )
+            self.db.executemany(
+                "insert into customers values (?,?) on conflict(customer_id) do update set customer_name=excluded.customer_name",
+                list(
+                    a[["customer_id", "customer_name"]].drop_duplicates().itertuples(index=False, name=None)
+                ),
+            )
+            self.db.executemany(
+                "insert into vehicles values (?,?,?,?,?) on conflict(vehicle_id) do update set customer_id=excluded.customer_id,model_id=excluded.model_id,country=excluded.country,city=excluded.city",
+                list(
+                    a[["vehicle_id", "customer_id", "model_id", "country", "city"]].itertuples(
+                        index=False, name=None
+                    )
+                ),
+            )
             f = pd.read_parquet(manifest)
-            cols = [r[1] for r in self.db.execute("pragma table_info(faults)") if r[1] != "legacy_state"]
-            for row in f.to_dict("records"):
-                values = [None if pd.isna(row.get(k)) else row.get(k) for k in cols]
-                # Preserve immutable order/response snapshots; refresh only evidence-derived fault columns.
-                updates = ",".join(f"{k}=excluded.{k}" for k in cols if k != "fault_id")
-                self.db.execute(
-                    f"insert into faults({','.join(cols)}) values ({','.join('?' for _ in cols)}) on conflict(fault_id) do update set {updates}",
-                    values,
-                )
-            self.db.execute("insert or replace into store_meta values ('detection_sha256',?)", (digest,))
+            cols = [c for c in self.db.columns("faults") if c != "legacy_state"]
+            values = [
+                [None if pd.isna(row.get(k)) else row.get(k) for k in cols] for row in f.to_dict("records")
+            ]
+            # Refresh sensor evidence only; existing order and response snapshots stay immutable.
+            updates = ",".join(f"{k}=excluded.{k}" for k in cols if k != "fault_id")
+            self.db.executemany(
+                f"insert into faults({','.join(cols)}) values ({','.join('?' for _ in cols)}) on conflict(fault_id) do update set {updates}",
+                values,
+            )
+            self.db.execute(
+                "insert into store_meta values ('detection_sha256',?) on conflict(key) do update set value=excluded.value",
+                (digest,),
+            )
             self.log("detection_dataset_imported", digest, dict(episodes=len(f)))
 
     def snapshot(self, fault):
@@ -170,12 +187,12 @@ class Service:
         with self.atomic():
             if self.db.execute("select 1 from store_meta where key='schema_r2'").fetchone():
                 return
-            tables = {r[0] for r in self.db.execute("select name from sqlite_master where type='table'")}
+            tables = self.db.tables()
             if "incidents" in tables:
                 for old in self.db.execute("select * from incidents").fetchall():
                     r = dict(old)
                     self.db.execute(
-                        "insert or ignore into faults(fault_id,vehicle_id,code,fault_name,component_id,severity,started_at,confirmed_at,last_detection_at,last_observed_at,fault_status,sensor_verification,policy_version,baseline_version,detection_version,evidence,run_id,legacy_state) values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        "insert into faults(fault_id,vehicle_id,code,fault_name,component_id,severity,started_at,confirmed_at,last_detection_at,last_observed_at,fault_status,sensor_verification,policy_version,baseline_version,detection_version,evidence,run_id,legacy_state) values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) on conflict do nothing",
                         (
                             r["id"],
                             r["vehicle_id"],
@@ -210,7 +227,7 @@ class Service:
                         status = {"completed": "Completed", "cancelled": "Rejected"}.get(r["state"], "Open")
                         snap = json.dumps(self.snapshot(fault), sort_keys=True)
                         self.db.execute(
-                            "insert or ignore into work_orders values (?,?,?,?,?,?,?,?)",
+                            "insert into work_orders values (?,?,?,?,?,?,?,?) on conflict do nothing",
                             (
                                 r["id"],
                                 r["incident_id"],
@@ -223,7 +240,7 @@ class Service:
                             ),
                         )
                         self.db.execute(
-                            "insert or ignore into export_requests values (?,'Created',0,null,?,?,?,?)",
+                            "insert into export_requests values (?,'Created',0,null,?,?,?,?) on conflict do nothing",
                             (r["incident_id"], snap, fault["customer_id"], "legacy-import", r["created_at"]),
                         )
                 # Do not turn legacy report-only/customer notes into final customer decisions.
@@ -274,17 +291,17 @@ class Service:
             # Disabled accounts cannot retain session access after a private configuration is selected.
             if self.auth_mode == "configured":
                 self.db.execute("update users set enabled=0")
-            for u in users:
-                if self.auth_mode == "public_demo":
-                    self.db.execute(
-                        "insert or ignore into users values (?,?,?,?,?,?,1)",
-                        (u.user_id, u.email.lower(), u.display_name, u.role, u.customer_id, u.password_hash),
-                    )
-                else:
-                    self.db.execute(
-                        "insert into users values (?,?,?,?,?,?,1) on conflict(user_id) do update set email=excluded.email,display_name=excluded.display_name,role=excluded.role,customer_id=excluded.customer_id,password_hash=excluded.password_hash,enabled=1",
-                        (u.user_id, u.email.lower(), u.display_name, u.role, u.customer_id, u.password_hash),
-                    )
+            values = [
+                (u.user_id, u.email.lower(), u.display_name, u.role, u.customer_id, u.password_hash)
+                for u in users
+            ]
+            if self.auth_mode == "public_demo":
+                self.db.executemany("insert into users values (?,?,?,?,?,?,1) on conflict do nothing", values)
+            else:
+                self.db.executemany(
+                    "insert into users values (?,?,?,?,?,?,1) on conflict(user_id) do update set email=excluded.email,display_name=excluded.display_name,role=excluded.role,customer_id=excluded.customer_id,password_hash=excluded.password_hash,enabled=1",
+                    values,
+                )
 
     def login(self, email, password):
         email = email.strip().lower()
@@ -305,7 +322,8 @@ class Service:
                     else 1
                 )
                 self.db.execute(
-                    "insert or replace into login_attempts values (?,?,?)", (email, failures, now())
+                    "insert into login_attempts values (?,?,?) on conflict(email) do update set failures=excluded.failures,last_at=excluded.last_at",
+                    (email, failures, now()),
                 )
                 token = None
             else:
@@ -336,9 +354,10 @@ class Service:
         return {k: row[k] for k in ["user_id", "email", "display_name", "role", "customer_id"]}
 
     def logout(self, token):
-        self.db.execute(
-            "delete from sessions where token_hash=?", (hashlib.sha256(token.encode()).hexdigest(),)
-        )
+        with self.atomic():
+            self.db.execute(
+                "delete from sessions where token_hash=?", (hashlib.sha256(token.encode()).hexdigest(),)
+            )
 
     def admin(self, token):
         user = self.principal(token)
@@ -348,7 +367,7 @@ class Service:
 
     def faults(self, token):
         self.admin(token)
-        return pd.read_sql_query("select * from fault_reporting order by confirmed_at desc,fault_id", self.db)
+        return self.db.frame("select * from fault_reporting order by confirmed_at desc,fault_id")
 
     def fault(self, token, fault_id):
         self.admin(token)
@@ -361,12 +380,10 @@ class Service:
         user = self.principal(token)
         sql = "select f.* from fault_reporting f join work_orders w on f.order_id=w.order_id"
         if user["role"] == "customer":
-            return pd.read_sql_query(
-                sql + " where w.customer_id=? order by w.created_at desc",
-                self.db,
-                params=[user["customer_id"]],
+            return self.db.frame(
+                sql + " where w.customer_id=? order by w.created_at desc", [user["customer_id"]]
             )
-        return pd.read_sql_query(sql + " order by w.created_at desc", self.db)
+        return self.db.frame(sql + " order by w.created_at desc")
 
     def order(self, token, order_id):
         user = self.principal(token)
@@ -455,7 +472,7 @@ class Service:
                 raise PermissionError("Invalid evidence path")
             frame = pd.read_parquet(path)
         else:
-            tables = {r[0] for r in self.db.execute("select name from sqlite_master where type='table'")}
+            tables = self.db.tables()
             if "observations" not in tables:
                 return pd.DataFrame()
             records = self.db.execute(
@@ -599,12 +616,10 @@ class Service:
 
     def audit(self, token):
         self.admin(token)
-        return pd.read_sql_query("select * from audit order by id desc", self.db)
+        return self.db.frame("select * from audit order by id desc")
 
     def legacy_feedback(self, token):
         self.admin(token)
-        if not self.db.execute(
-            "select 1 from sqlite_master where type='table' and name='feedback'"
-        ).fetchone():
+        if "feedback" not in self.db.tables():
             return pd.DataFrame()
-        return pd.read_sql_query("select * from feedback", self.db)
+        return self.db.frame("select * from feedback")

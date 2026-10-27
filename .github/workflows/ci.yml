@@ -6,6 +6,22 @@ jobs:
   verify:
     runs-on: ubuntu-24.04
     timeout-minutes: 12
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: fleetcare_test
+          POSTGRES_PASSWORD: disposable_ci_password
+          POSTGRES_DB: fleetcare_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U fleetcare_test -d fleetcare_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      FLEETCARE_TEST_POSTGRES_URL: postgresql://fleetcare_test:disposable_ci_password@localhost:5432/fleetcare_test?sslmode=disable
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7

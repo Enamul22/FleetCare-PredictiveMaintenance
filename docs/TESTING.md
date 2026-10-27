@@ -34,7 +34,7 @@ methodology; corrected support, matching and new cohort make direct numerical co
 
 ## Executed verification
 
-36 meaningful tests cover prepared full-fleet hashes/counters/support, all five fault families, healthy
+The suite covers prepared full-fleet hashes/counters/support, all five fault families, healthy
 transients, missing/bad data, exact temporal windows, prefix/batch parity, actual recovery/recurrence,
 past-only features, bounded event matching and separate-process hash-seed reproducibility. Small complete
 generation/materialization runs reproduce identical output. Service tests cover additive legacy migration,
@@ -62,3 +62,24 @@ PYTHONPATH=src .venv/bin/python -m fleetcare.verify
 Full generation/detection is offline; bounded CI uses prepared data without full training/generation.
 Clean environment and exact remote Actions result are recorded in PROGRESS.md. Review evidence is not
 production certification. Hosted local SQLite durability and production identity management remain limitations.
+
+## PostgreSQL persistence verification · 27 October 2026
+
+The shared operational/query tests run against both SQLite and real PostgreSQL. Each PostgreSQL test
+migrates its own disposable schema; no test truncates an existing application schema. CI starts an isolated
+PostgreSQL 18 service and uses no Neon credentials. Its plaintext URL is restricted to the loopback test
+server; remote application URLs require TLS. Local real-Neon tests use a temporary child branch and pooled
+runtime/direct migration connections, not the production branch.
+
+Final real-Neon run: 52 passed, 2 skipped in 132.30 seconds. Both skips are PostgreSQL-specific
+reconnect/retry checks under the SQLite parameter. Checks include failed export/retry, simultaneous creates/conflicting responses,
+foreign-customer detail/evidence/write denial, atomic rollback, final-response idempotency, null feedback,
+matching downloads and ended-before-response. Additional tests cover TLS/fail-closed configuration,
+missing migration refusal, unrelated-schema preservation, migration rerun preserving a completed response,
+logout/relogin, closed-connection reconnect and a fresh Python subprocess retaining committed feedback.
+
+Run optional PostgreSQL integration locally by privately setting `FLEETCARE_TEST_POSTGRES_URL` (direct)
+and optionally `FLEETCARE_TEST_POSTGRES_POOLED_URL`; then run pytest. Without them, PostgreSQL cases skip;
+SQLite, UI and model checks still run. Never point test variables at a live FleetCare schema. Read the
+fixture's schema-isolation safeguards before using a shared project. The exact remote CI result is linked
+from the review PR; the live Streamlit cutover remains a separate reviewed step.

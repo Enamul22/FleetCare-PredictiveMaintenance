@@ -50,3 +50,14 @@ customer-evidence-explanation.jpg shows plain-language trigger/recovery explanat
 These local checks do not diagnose or fix reported missing records on the deployed app. Hosted local
 SQLite persistence remains unguaranteed. Follow-up code/screenshots remain local for review, without a
 GitHub push or hosting mutation.
+
+## PostgreSQL persistence review
+
+The local Streamlit review server connected to the real temporary Neon child branch (separate from
+production). Native admin row selection created one order; a separately signed-in customer submitted
+Completed / Unknown / Report only / Not sure with notes. After logout/login, View all saved orders
+retained the completed row (postgres-history-after-login.jpg). Admin refresh showed the exact response
+on the same fault (postgres-admin-writeback.jpg). neon-test-branch.jpg shows the isolated expiring branch
+with its password masked. Fresh-process persistence, rollback, ownership and concurrent writes were also
+tested through the actual PostgreSQL adapter. Final local result: 52 passed, 2 intentional SQLite skips.
+The live Streamlit app was not changed. Private connection files are ignored and are not evidence artifacts.

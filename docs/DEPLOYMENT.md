@@ -5,8 +5,8 @@ No hosting deployment or account connection change was performed.
 
 ## Local shared demonstration
 
-Python 3.12; install requirements.lock.txt, then `streamlit run app.py`. Default saved store is the
-repository's ignored fleetcare.sqlite. Override with `FLEETCARE_DB=/absolute/path/review.sqlite`.
+Python 3.12; install requirements.lock.txt, then `streamlit run app.py`. Default local saved store is the
+repository's ignored fleetcare.sqlite. For hosted persistence use [Neon/PostgreSQL](NEON_SETUP.md). Override with `FLEETCARE_DB=/absolute/path/review.sqlite`.
 Two browser tabs sign in independently and read/write that same saved store. Refresh saved changes
 requeries it. Restart does not require reseeding/replaying workflow data. There is no customer reset button.
 
@@ -80,8 +80,9 @@ password_hash = "pbkdf2_sha256$..."
 - Check Completed/Rejected history, rejected reason, null rating, response timestamps and independent fault status.
 - Shared SQLite is for one running instance only. A hosted local file can disappear on sleep/restart/redeploy;
   multiple replicas would not share it. No reliable hosted durability or production multiuser readiness is claimed.
-- Reliable durable hosting requires a future external-store adapter plus authentication/concurrency verification.
-  No such external store is implemented here, and none is required for local review.
+- Reliable durable hosting requires configuring the PostgreSQL adapter plus authentication/concurrency verification.
+  The optional PostgreSQL adapter is now implemented; configure it using NEON_SETUP.md. SQLite remains
+  available for local review.
 - Any reset/reseed is an explicit offline developer action after backing up the DB; never delete historical
   records to work around migration failures. No real notifications, purchase orders or CRM writes are made.
 
@@ -94,6 +95,6 @@ the local SQLite file, a changed db_path can open a different file, and db_path=
 non-persistent. The normal default uses a shared file, not memory. Do not reset/reseed as a repair.
 
 Streamlit [does not guarantee local file persistence](https://docs.streamlit.io/develop/concepts/connections/connecting-to-data).
-Persistent hosted history needs an external durable database integration; moving the file to a different
-local folder is not enough. This project does not yet implement that adapter. Avoid pushing/redeploying
+Persistent hosted history needs the optional PostgreSQL adapter and a configured remote database; moving
+the file to a different local folder is not enough. Follow NEON_SETUP.md to initialize and configure Neon. Avoid pushing/redeploying
 a live review app merely to investigate missing history; export any still-readable records first.

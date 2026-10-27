@@ -10,6 +10,7 @@ from streamlit.errors import StreamlitSecretNotFoundError
 from .config import DATA, ROOT, MODELS
 from .detection import Baseline, evidence
 from .service import Service, ConflictError
+from .storage import StorageError
 from .reporting import filter_faults, page_slice
 
 LABELS = {
@@ -80,7 +81,12 @@ def main():
                 cfg = dict(st.secrets["fleetcare"])
             except (KeyError, StreamlitSecretNotFoundError):
                 cfg = {}
-            st.session_state.service = Service(path=cfg.get("db_path"), auth_config=cfg.get("users"))
+            st.session_state.service = Service(
+                path=cfg.get("db_path"),
+                auth_config=cfg.get("users"),
+                database_url=cfg.get("database_url"),
+                database_schema=cfg.get("database_schema"),
+            )
         except (ValueError, OSError) as exc:
             st.error(f"Application configuration needs attention: {exc}")
             st.stop()
@@ -94,6 +100,11 @@ def main():
     except PermissionError:
         st.session_state.pop("token", None)
         st.rerun()
+    except StorageError as exc:
+        st.error(str(exc))
+        if st.button("Retry database connection"):
+            st.rerun()
+        return
     if st.session_state.get("workspace_next"):
         st.session_state.workspace = st.session_state.pop("workspace_next")
     with st.sidebar:
@@ -109,7 +120,11 @@ def main():
         if st.button("Refresh saved changes", key="refresh"):
             st.rerun()
         if st.button("Sign out"):
-            svc.logout(token)
+            try:
+                svc.logout(token)
+            except StorageError as exc:
+                st.error(str(exc))
+                return
             svc.db.close()
             st.session_state.clear()
             st.rerun()
@@ -118,8 +133,11 @@ def main():
             "Independent synthetic portfolio demonstration by Enamul Haque. Fictional vehicles, procedures and parts."
         )
         st.caption(
-            "Shared single-instance demo state. Customer reports do not prove physical repair or sensor recovery."
+            "Saved history uses PostgreSQL storage."
+            if svc.backend == "postgresql"
+            else "Local demo storage. Hosted history may be lost when the app restarts or is redeployed."
         )
+        st.caption("Customer reports do not confirm sensor recovery.")
     st.markdown('<div class="eyebrow">FLEETCARE / PREDICTIVE MAINTENANCE</div>', unsafe_allow_html=True)
     try:
         if workspace == "Fault overview":
@@ -155,7 +173,7 @@ def sign_in(svc):
             try:
                 st.session_state.token = svc.login(email, password)
                 st.rerun()
-            except PermissionError as exc:
+            except (PermissionError, StorageError) as exc:
                 st.error(str(exc))
         if svc.auth_mode == "public_demo":
             with st.expander("Local demo accounts"):

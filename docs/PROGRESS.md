@@ -102,3 +102,29 @@ Completed update implementation:
 - Final local verification: 36 tests passed in 16.46 s, lint/format and diff checks passed. Chrome verified
   sign-out/sign-in retains the completed local response, history shortcut displays All consistently, and
   plain-language evidence is readable. Changes saved locally; no push or live hosting mutation performed.
+
+## 27 October 2026 · durable PostgreSQL backend review
+
+- Located Enamul's existing FleetCare Neon project (Free, Frankfurt). Neon plugin is listed as installed
+  but its SQL tools are not exposed in this chat; reused the already-signed-in console session. No second
+  project, paid plan, identity-provider replacement, or hosting change was created.
+- Created an isolated child branch fleetcare-persistence-review-20261027, auto-delete after one day.
+  Direct/pooled test URLs were saved outside Git with mode 0600 and never printed. Production branch
+  remains unchanged. Do not use the expiring branch URL for persistent hosted history.
+- Implemented optional PostgreSQL through psycopg 3.3.6, preserving local SQLite and the shared Service.
+  Versioned offline migration, schema isolation, explicit TLS configuration, batching, pool-compatible
+  transactions/advisory locks, unique keys, bound parameters, and fail-closed backend selection added.
+- Real Neon tests exercise the same operational/query acceptance cases as SQLite plus fresh-process
+  persistence, migration rerun preservation, unknown/unrelated schema refusal and remote TLS guards.
+- Browser review exposed an idle-connection failure before sign-in's transaction body. Added one reconnect
+  only before a body starts; bodies/uncertain commits are never blindly replayed. Added a regression test
+  and clear sign-in/sign-out/principal connection errors instead of raw tracebacks.
+- CI now provisions disposable PostgreSQL 18; no private Neon credentials are required in GitHub Actions.
+  App name/version and detector/data outputs remain unchanged. Documentation describes reviewed cutover,
+  preservation limits and Neon's independent storage rather than claiming SQLite is hosted durability.
+
+- Final combined SQLite/real-Neon checks: 52 passed, 2 intentional SQLite skips in 132.30 s; lint, format,
+  compile and dependency integrity pass. Browser PostgreSQL flow completed: admin create → separate
+  customer response → logout/login retains history → admin reads the same response. Screenshots saved.
+- Fetched remote main and found Enamul's two documentation commits (e42e7de, b620dfb). Preserve their
+  synthetic-data wording and removed old deployment checklist when merging the review branch.
